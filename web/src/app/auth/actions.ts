@@ -23,6 +23,7 @@ export async function signInWithSpotify() {
 
 export async function signOut() {
   const supabase = await createClient()
-  await supabase.auth.signOut()
+  // "local" ends only this browser's session; the default ("global") would sign you out everywhere.
+  await supabase.auth.signOut({ scope: "local" })
   redirect("/?signed_out=1")
 }

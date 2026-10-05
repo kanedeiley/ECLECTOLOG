@@ -26,21 +26,36 @@ export async function GET(request: NextRequest) {
   const origin = originFrom(request.headers)
   const code = searchParams.get("code")
   const errorCode = searchParams.get("error_code")
-  if (errorCode && errorCode in FRIENDLY_ERRORS) return fail(origin, FRIENDLY_ERRORS[errorCode])
   const oauthError = searchParams.get("error_description") ?? searchParams.get("error")
+  if (oauthError) {
+    // Shows up in the Vercel / dev server logs, so failed sign-ins can be diagnosed.
+    console.error("Sign-in failed before the callback", {
+      error: searchParams.get("error"),
+      error_code: errorCode,
+      error_description: searchParams.get("error_description"),
+    })
+  }
+  if (errorCode && errorCode in FRIENDLY_ERRORS) return fail(origin, FRIENDLY_ERRORS[errorCode])
   // Supabase reports Spotify's Development Mode 403 (account not on the app's User Management list) this way.
   if (oauthError?.includes("Error getting user profile from external provider")) return fail(origin, NOT_INVITED)
-  if (oauthError) return fail(origin, oauthError)
+  if (oauthError) return fail(origin, errorCode ? `${oauthError} (${errorCode})` : oauthError)
   if (!code) return fail(origin, "Spotify did not return an authorization code.")
 
   const supabase = await createClient()
   const { data, error } = await supabase.auth.exchangeCodeForSession(code)
-  if (error) return fail(origin, error.message)
+  if (error) {
+    console.error("Exchanging the sign-in code failed", { code: error.code, status: error.status, message: error.message })
+    // The PKCE verifier cookie lives in the browser that started sign-in; finishing in another one loses it.
+    if (error.code === "pkce_code_verifier_not_found" || /code verifier/i.test(error.message)) {
+      return fail(origin, "Sign-in has to start and finish in the same browser. Open this site in Safari or Chrome directly (not inside another app) and try again.")
+    }
+    return fail(origin, error.code ? `${error.message} (${error.code})` : error.message)
+  }
 
   // provider_token / provider_refresh_token are only available right here, at sign-in.
   const { user, provider_token: accessToken, provider_refresh_token: refreshToken } = data.session
   if (!accessToken || !refreshToken) {
-    await supabase.auth.signOut()
+    await supabase.auth.signOut({ scope: "local" })
     return fail(origin, "Spotify did not return tokens. Please try again.")
   }
 
@@ -48,7 +63,7 @@ export async function GET(request: NextRequest) {
   try {
     me = await fetchSpotifyMe(accessToken)
   } catch (err) {
-    await supabase.auth.signOut()
+    await supabase.auth.signOut({ scope: "local" })
     return fail(
       origin,
       err instanceof SpotifyForbiddenError ? NOT_INVITED : "Couldn't load your Spotify profile. Please try again.",
@@ -75,7 +90,7 @@ export async function GET(request: NextRequest) {
   const dbError = profile.error ?? tokens.error
   if (dbError) {
     console.error("Saving Spotify connection failed", dbError)
-    await supabase.auth.signOut()
+    await supabase.auth.signOut({ scope: "local" })
     return fail(origin, "Signed in, but saving your account failed. Please try again.")
   }
 

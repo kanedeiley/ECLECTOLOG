@@ -1,4 +1,6 @@
-# ECLECTOLOG
+<p align="center">
+  <img src="assets/Electolog.svg" alt="Eclectolog" width="600">
+</p>
 
 An eclectic Spotify playlist builder that runs on a GitHub Actions cron. It learns from what you
 listen to, but on purpose it **doesn't converge on one "north star."** Recent listening counts a
@@ -30,7 +32,7 @@ Three things stop it from converging on one taste:
 - **Hard caps.** One track per artist and four per genre. Wildcards skip your ten heaviest genres.
 
 It never repeats itself. Anything in your listening history, your Liked Songs sample or any
-previous mix is skipped. If you ❤️ a track from a previous mix, that artist gets boosted next time.
+previous mix is skipped. If you like a track from a previous mix, that artist gets boosted next time.
 
 Every track served is logged to `history.jsonl` on a separate **`eclectolog-state`** branch, one
 line per run. That costs no Spotify API calls, never expires, and comes to about 2 MB a year.
@@ -120,7 +122,7 @@ schedule from a variable. Also note that GitHub pauses scheduled workflows on pu
 |---|---|---|
 | **Eclectolog · Compass** | Add songs you want more of | Their artists become Compass seeds; their genres are explored with new artists |
 | **Eclectolog · Avoid** | Add a song | That artist never appears in a mix |
-| **Eclectolog** | ❤️ tracks you love | Those artists get a boost next run |
+| **Eclectolog** | Like tracks you love | Those artists get a boost next run |
 
 ### Compass directives
 
@@ -208,14 +210,3 @@ python -m eclectolog --dry-run                    # preview
 python -m eclectolog --size 25 --seed 7 -v        # for real
 pytest -q                                         # tests (pip install pytest)
 ```
-
-## Troubleshooting
-
-| Symptom | Fix |
-|---|---|
-| `INVALID_CLIENT: Invalid redirect URI` | The redirect URI in your app settings must match exactly, including `http://`, `127.0.0.1`, the port and `/callback` |
-| `invalid_grant` on refresh | Token revoked or rotated. Re-run `scripts/get_refresh_token.py`, or set `GH_PAT` so rotations are saved automatically |
-| `403` from the API | Add your account under **User Management**, and make sure the app owner has Premium |
-| Mix is mostly wildcards | Spotify returns empty genres for many artists. Add `more:` genres to the Compass or `genres:` to `interests.yaml` |
-| `rate-limited … for 23.9h` | Spotify bans an endpoint for ~24h when an app makes too many calls. The run carries on without that endpoint (deep cuts from albums you've played need only `/albums/{id}/tracks`), and the next day's run recovers. Lower `api.max_reads` or `diversity.search_budget` if it keeps happening |
-| Scheduled runs stopped | Check that Actions are enabled on your fork. Public repos pause schedules after 60 days without commits |

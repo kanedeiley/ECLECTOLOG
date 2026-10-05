@@ -21,9 +21,24 @@ function fail(origin: string, error: string) {
   return NextResponse.redirect(`${origin}/?error=${encodeURIComponent(error)}`)
 }
 
+/**
+ * True when this browser already holds a working session with a saved profile. On iPhones the
+ * Spotify redirect can hit the callback twice with the same one-time state: the first hit signs
+ * the person in, the second is rejected. That rejection shouldn't replace a successful sign-in.
+ */
+async function alreadySignedIn(supabase: Awaited<ReturnType<typeof createClient>>): Promise<boolean> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return false
+  const { data } = await supabase.from("profiles").select("id").eq("id", user.id).maybeSingle()
+  return Boolean(data)
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const origin = originFrom(request.headers)
+  const supabase = await createClient()
   const code = searchParams.get("code")
   const errorCode = searchParams.get("error_code")
   const oauthError = searchParams.get("error_description") ?? searchParams.get("error")
@@ -35,16 +50,20 @@ export async function GET(request: NextRequest) {
       error_description: searchParams.get("error_description"),
     })
   }
-  if (errorCode && errorCode in FRIENDLY_ERRORS) return fail(origin, FRIENDLY_ERRORS[errorCode])
   // Supabase reports Spotify's Development Mode 403 (account not on the app's User Management list) this way.
   if (oauthError?.includes("Error getting user profile from external provider")) return fail(origin, NOT_INVITED)
+  if (oauthError && (await alreadySignedIn(supabase))) {
+    console.warn("Ignoring a repeated sign-in callback; this browser is already signed in", { error_code: errorCode })
+    return NextResponse.redirect(`${origin}/`)
+  }
+  if (errorCode && errorCode in FRIENDLY_ERRORS) return fail(origin, FRIENDLY_ERRORS[errorCode])
   if (oauthError) return fail(origin, errorCode ? `${oauthError} (${errorCode})` : oauthError)
   if (!code) return fail(origin, "Spotify did not return an authorization code.")
 
-  const supabase = await createClient()
   const { data, error } = await supabase.auth.exchangeCodeForSession(code)
   if (error) {
     console.error("Exchanging the sign-in code failed", { code: error.code, status: error.status, message: error.message })
+    if (await alreadySignedIn(supabase)) return NextResponse.redirect(`${origin}/`)
     // The PKCE verifier cookie lives in the browser that started sign-in; finishing in another one loses it.
     if (error.code === "pkce_code_verifier_not_found" || /code verifier/i.test(error.message)) {
       return fail(origin, "Sign-in has to start and finish in the same browser. Open this site in Safari or Chrome directly (not inside another app) and try again.")

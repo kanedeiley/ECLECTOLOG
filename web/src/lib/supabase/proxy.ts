@@ -24,7 +24,12 @@ export async function updateSession(request: NextRequest) {
   )
 
   // Don't run code between createServerClient and getClaims: it can cause random sign-outs.
-  await supabase.auth.getClaims()
+  const { error } = await supabase.auth.getClaims()
+  if (error?.code === "refresh_token_not_found") {
+    // A stale session cookie (signed out elsewhere, or the user was deleted): clear it instead of
+    // erroring on every request. The person simply shows as signed out.
+    await supabase.auth.signOut({ scope: "local" })
+  }
 
   return response
 }

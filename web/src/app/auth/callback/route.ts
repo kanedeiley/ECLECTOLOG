@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
+import { originFrom } from "@/lib/origin"
 import { fetchSpotifyMe, SpotifyForbiddenError } from "@/lib/spotify"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
@@ -18,7 +19,8 @@ function fail(origin: string, error: string) {
 }
 
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url)
+  const { searchParams } = new URL(request.url)
+  const origin = originFrom(request.headers)
   const code = searchParams.get("code")
   const errorCode = searchParams.get("error_code")
   if (errorCode && errorCode in FRIENDLY_ERRORS) return fail(origin, FRIENDLY_ERRORS[errorCode])

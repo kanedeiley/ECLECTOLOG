@@ -2,12 +2,12 @@
 
 import { headers } from "next/headers"
 import { redirect } from "next/navigation"
+import { originFrom } from "@/lib/origin"
 import { SPOTIFY_SCOPES } from "@/lib/spotify"
 import { createClient } from "@/lib/supabase/server"
 
 export async function signInWithSpotify() {
-  const h = await headers()
-  const origin = h.get("origin") ?? `https://${h.get("host")}`
+  const origin = originFrom(await headers())
   const supabase = await createClient()
 
   const { data, error } = await supabase.auth.signInWithOAuth({

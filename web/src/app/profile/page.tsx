@@ -5,7 +5,7 @@ import { SiteFooter } from "@/components/site-footer"
 import { SiteHeader } from "@/components/site-header"
 import { getMix, getProfile } from "@/lib/data"
 
-export const metadata: Metadata = { title: "Your mix · Eclectolog" }
+export const metadata: Metadata = { title: "Tune your mix · Eclectolog" }
 
 export default async function Page() {
   const profile = await getProfile()

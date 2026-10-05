@@ -148,14 +148,18 @@ def write_output(client: Spotify, cfg: dict, refs: References, name: str, picks:
     return (pl.get("external_urls") or {}).get("spotify")
 
 
-def run(client: Spotify, cfg: dict, rng: random.Random, now: datetime) -> RunResult:
+def run(
+    client: Spotify, cfg: dict, rng: random.Random, now: datetime, served: ServedHistory | None = None
+) -> RunResult:
+    """Builds one mix. `served` defaults to the history file named in the config."""
     name = output_name(cfg, now)
     refs = load_references(client, cfg, name)
     notes = apply_directives(cfg, refs.directives) if refs.directives else []
     size = cfg["playlist"]["size"]
 
     avoid_ids = {t.primary_artist_id for t in refs.tracks_of("avoid")}
-    served = ServedHistory.load(cfg["state"]["file"])
+    if served is None:
+        served = ServedHistory.load(cfg["state"]["file"])
     previous = refs.tracks_of("output") or served.last_tracks()
     liked = saved_subset(client, previous) if cfg["reference"]["liked_feedback_boost"] > 0 else []
 
@@ -194,7 +198,7 @@ def run(client: Spotify, cfg: dict, rng: random.Random, now: datetime) -> RunRes
     )
     if picks and not cfg["dry_run"]:
         result.playlist_url = write_output(client, cfg, refs, name, picks, now, result.created_playlists)
-        served.add_run(now, name, picks, cfg["state"]["keep_days"])
+        served.add_run(now, name, picks, cfg["state"]["keep_days"], url=result.playlist_url)
         served.save()
     result.api_calls = getattr(client, "calls", 0)
     return result

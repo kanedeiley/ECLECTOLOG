@@ -65,6 +65,7 @@ class Spotify:
         max_retries: int = 5,
         max_wait: float = 60,
         sleep: Callable[[float], None] = time.sleep,
+        blocked_until: dict[str, float] | None = None,
     ):
         self.client_id = client_id
         self.client_secret = client_secret
@@ -74,7 +75,9 @@ class Spotify:
         self.max_retries = max_retries
         self.max_wait = max_wait
         self._sleep = sleep
-        self._blocked_until: dict[str, float] = {}  # endpoint -> epoch seconds
+        # endpoint -> epoch seconds. Rate limits are per app, so the multi-user job shares one dict
+        # across every user's client: a long ban on one user's run skips that endpoint for the rest.
+        self._blocked_until: dict[str, float] = blocked_until if blocked_until is not None else {}
         self.pace = {"/search": 0.5}  # per-endpoint min seconds between calls
         self.default_pace = 0.0  # min seconds between any two calls
         self.max_reads: int | None = None  # GET budget per run; writes are never blocked

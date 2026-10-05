@@ -79,10 +79,11 @@ DEFAULTS: dict[str, Any] = {
         "max_reads": 300,  # hard cap on GET requests per run (playlist writes are exempt)
         "pace_seconds": 0.15,  # min gap between requests; bursts get apps banned for ~24h
         "search_pace_seconds": 0.5,
+        "user_pause_seconds": 30,  # multi-user job: rest between users so bursts don't stack up
     },
     "interests_file": "interests.yaml",
     "state": {
-        "file": "state/history.jsonl",  # served-track history; the workflow keeps it on the eclectolog-state branch
+        "file": "state/history.jsonl",  # served-track history for single-user runs (--all-users uses Supabase)
         "keep_days": 730,  # forget runs older than this (0 = keep forever)
     },
     "market": "from_token",

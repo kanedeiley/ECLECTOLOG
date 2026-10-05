@@ -60,11 +60,12 @@ api:
   max_reads: 300           # hard cap on GET requests per run (playlist writes are exempt)
   pace_seconds: 0.15       # min gap between requests
   search_pace_seconds: 0.5
+  user_pause_seconds: 30   # --all-users: pause between people (Spotify limits are per app, not per user)
 
 interests_file: interests.yaml
 
-# Served-track history (prevents repeats, powers "you saved this" feedback). On GitHub the workflow
-# stores it on the eclectolog-state branch; locally it's a gitignored file.
+# Served-track history (prevents repeats, powers "you saved this" feedback). The multi-user job
+# (--all-users) keeps it in Supabase's mix_runs table; single-user local runs use this file.
 state:
   file: state/history.jsonl
   keep_days: 730           # forget runs older than this (0 = keep forever)

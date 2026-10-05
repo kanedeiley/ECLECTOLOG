@@ -1,8 +1,7 @@
-"""Served-track history kept as a JSON Lines file (one run per line) instead of a Spotify playlist.
+"""Served-track history: every run's picks, so mixes never repeat and liked tracks can boost artists.
 
-In GitHub Actions the workflow keeps this file on a separate `eclectolog-state` branch, so it
-survives between runs without costing Spotify API calls. Locally it's just a file (state/ is gitignored).
-Roughly 5 KB per 40-track run, so a year of daily runs is ~2 MB; each run's commit appends one line.
+Single-user local runs keep it in a JSON Lines file (one run per line; state/ is gitignored).
+The multi-user job keeps the same run records in Supabase instead (see eclectolog.db.SupabaseHistory).
 """
 from __future__ import annotations
 
@@ -17,7 +16,9 @@ log = logging.getLogger(__name__)
 
 
 class ServedHistory:
-    def __init__(self, path: Path, runs: list[dict] | None = None):
+    """File-backed history. Subclasses override load/save to keep the runs somewhere else."""
+
+    def __init__(self, path: Path | None = None, runs: list[dict] | None = None):
         self.path = path
         self.runs = runs or []
 
@@ -49,13 +50,16 @@ class ServedHistory:
     def last_tracks(self) -> list[Track]:
         return self.tracks(self.runs[-1]) if self.runs else []
 
-    def add_run(self, when: datetime, playlist: str, picks: list[Candidate], keep_days: int) -> None:
+    def add_run(
+        self, when: datetime, playlist: str, picks: list[Candidate], keep_days: int, url: str | None = None
+    ) -> None:
         self.runs.append({
             "at": when.isoformat(timespec="seconds"),
             "playlist": playlist,
+            "url": url,
             "tracks": [
                 {"id": c.track.id, "name": c.track.name, "artists": [list(a) for a in c.track.artists],
-                 "album": c.track.album, "source": c.source}
+                 "album": c.track.album, "source": c.source, "reason": c.reason}
                 for c in picks
             ],
         })
@@ -64,6 +68,7 @@ class ServedHistory:
             self.runs = [r for r in self.runs if datetime.fromisoformat(r["at"]) >= cutoff]
 
     def save(self) -> None:
+        assert self.path is not None, "file-backed history needs a path"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text("".join(json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n" for r in self.runs))

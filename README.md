@@ -1,14 +1,15 @@
 <p align="center">
-  <img src="assets/Electolog.svg" alt="Eclectolog" width="600">
+  <img src="assets/Eclectolog.svg" alt="Eclectolog" width="600">
 </p>
 
-An eclectic Spotify playlist builder that runs on a GitHub Actions cron. It learns from what you
-listen to, but on purpose it **doesn't converge on one "north star."** Recent listening counts a
-little more, and everything else is flattened so the mix keeps branching out.
+An eclectic Spotify playlist builder for you and a few friends. Everyone joins through a small web
+app, and a daily GitHub Actions job builds each person a new mix. It learns from what you listen
+to, but on purpose it **doesn't converge on one "north star."** Recent listening counts a little
+more, and everything else is flattened so the mix keeps branching out.
 
-You steer it from inside Spotify. A **Compass** playlist sets what you want more of, an **Avoid**
-playlist bans artists, and directives typed into the Compass description work like a settings
-panel. You never have to touch the repo after setup.
+You steer it from the web app, where you set how much each source contributes, and from inside
+Spotify. A **Compass** playlist sets what you want more of, an **Avoid** playlist bans artists, and
+directives typed into the Compass description work like a settings panel.
 
 ---
 
@@ -34,11 +35,11 @@ Three things stop it from converging on one taste:
 It never repeats itself. Anything in your listening history, your Liked Songs sample or any
 previous mix is skipped. If you like a track from a previous mix, that artist gets boosted next time.
 
-Every track served is logged to `history.jsonl` on a separate **`eclectolog-state`** branch, one
-line per run. That costs no Spotify API calls, never expires, and comes to about 2 MB a year.
-Browse the branch to see past mixes, or delete it to reset.
+Every mix is saved to Supabase (the `mix_runs` table, one row per mix). That's how it remembers
+what it already served without spending Spotify API calls, and the web app's dashboard shows your
+latest mix from there. Mixes older than two years are dropped.
 
-Every run writes a job summary listing each track with *why* it was picked.
+Each mix lists every track with *why* it was picked, in the dashboard and in the job summary.
 
 > **About the Spotify API (2026):** Spotify removed `/recommendations`, related artists, audio
 > features (Nov 2024), artist top tracks, track and artist `popularity`, and capped search at 10
@@ -47,72 +48,65 @@ Every run writes a job summary listing each track with *why* it was picked.
 
 ---
 
-## Setup (about 10 minutes)
+## Setup (about 20 minutes)
 
-### 1. Fork this repo
+You need a Spotify app, a Supabase project, somewhere to host the web app (Vercel works well) and
+this repo on GitHub.
 
-Then open the **Actions** tab on your fork and click **"I understand my workflows, go ahead and enable them."**
-Forks start with workflows disabled.
-
-### 2. Create a Spotify app
+### 1. Create a Spotify app
 
 1. Go to <https://developer.spotify.com/dashboard> and log in. As of Feb 2026, the app owner needs **Spotify Premium**.
-2. Click **Create app** and fill in:
-   - **App name:** `Eclectolog` (anything works)
-   - **App description:** `Personal playlist builder`
-   - **Redirect URIs:** `http://127.0.0.1:8888/callback`, then click **Add**.
-     It must be exactly this. Spotify no longer accepts `localhost`, so you need the
-     loopback IP `127.0.0.1`. Plain `http` is allowed only for loopback addresses.
-   - **Which API/SDKs are you planning to use?** Tick **Web API**.
-3. Accept the terms and click **Save**.
-4. Open **Settings**. Copy the **Client ID**, then click **View client secret** and copy that too.
-5. Optional: under **User Management**, add the name and email of the Spotify account the playlist
-   is for. Do this if it isn't the account that owns the app. If you get `403` errors, do it anyway.
-   Development Mode apps allow up to 5 users. Each person forking this repo makes their own app,
-   so the limit doesn't matter here.
+2. Click **Create app**, tick **Web API**, and add these **Redirect URIs**:
+   - `https://<project-ref>.supabase.co/auth/v1/callback` for sign-in through the web app
+   - `http://127.0.0.1:8888/callback` for single-user local runs (optional)
+3. Open **Settings** and copy the **Client ID** and **Client secret**.
+4. Under **User Management**, add each friend's name and Spotify email. Development Mode apps
+   allow 5 users, including you, and anyone not on the list gets a `403`.
 
-### 3. Get a refresh token
+### 2. Set up Supabase
 
-On your computer, from a clone of your fork (Python 3.10+, no packages needed for this step):
+1. Run the files in [`supabase/migrations/`](supabase/migrations) in order, in the **SQL Editor**
+   or with `supabase db push`.
+2. **Authentication → Sign In / Providers → Spotify:** turn it on and paste the Client ID and Secret.
+3. **Authentication → Sign In / Providers → Email:** turn off **Confirm email**. Spotify reports
+   emails as unverified, so with it on, sign-in stops to send a confirmation email.
+4. **Authentication → URL Configuration:** set the Site URL to your web app's URL, and add
+   `http://localhost:3000/**` and `https://<your-domain>/**` to Redirect URLs.
 
-```bash
-# Easiest: stores all three secrets on your fork with the GitHub CLI (https://cli.github.com)
-python scripts/get_refresh_token.py --set-github-secrets
+### 3. Deploy the web app
 
-# Or print the token and add the secrets by hand
-python scripts/get_refresh_token.py
-
-# Also save a .env for local runs (gitignored)
-python scripts/get_refresh_token.py --write-env
-```
-
-It asks for your Client ID and Secret, opens Spotify's consent page, catches the redirect on
-`127.0.0.1:8888` and exchanges the code for a token. If port 8888 is busy, pass
-`--redirect-uri http://127.0.0.1:9090/callback` and add that URI to your app's settings too.
+See [Web app](#web-app) below. Then sign in yourself so you have a profile and stored tokens.
 
 ### 4. Add GitHub secrets
 
-Go to **Settings → Secrets and variables → Actions → Secrets** and add:
+On the repo, go to **Settings → Secrets and variables → Actions → Secrets** and add:
 
 | Secret | Value |
 |---|---|
-| `SPOTIFY_CLIENT_ID` | from the dashboard |
-| `SPOTIFY_CLIENT_SECRET` | from the dashboard |
-| `SPOTIFY_REFRESH_TOKEN` | from step 3 |
-| `GH_PAT` *(optional)* | fine-grained token for this repo with **Secrets: Read and write**. If Spotify ever rotates your refresh token, the workflow uses this to save the new one automatically. |
+| `SPOTIFY_CLIENT_ID` | from the Spotify dashboard. It must be the same app Supabase uses, or token refreshes fail |
+| `SPOTIFY_CLIENT_SECRET` | from the Spotify dashboard |
+| `SUPABASE_URL` | `https://<project-ref>.supabase.co` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase **Settings → API**. An `sb_secret_...` key works too |
 
 ### 5. Run it
 
 Go to **Actions → Eclectolog → Run workflow** and tick **Dry run** first. The job summary shows
-the mix without changing anything. Then run it for real.
+everyone's mix without changing anything. To try one person, put their Spotify user ID in **Only
+this user**. Then run it for real.
 
-The first real run creates three private playlists in your library: **Eclectolog**, plus
-**Eclectolog · Compass** and **Eclectolog · Avoid**. It also creates the `eclectolog-state` branch.
+Each person's first real run creates three private playlists in their library: **Eclectolog**,
+plus **Eclectolog · Compass** and **Eclectolog · Avoid**.
 
-After that it runs every day at 01:07 UTC (9 PM US Eastern in summer) on its own. To change the schedule, edit the `cron:` line in
+After that it runs every day at 01:07 UTC (9 PM US Eastern in summer). It builds one person's mix
+at a time with a 30-second pause in between (`api.user_pause_seconds`), because Spotify's rate
+limits apply to the whole app, not to each user. If Spotify bans an endpoint for hours, the rest of
+that day's mixes skip it. If one person's mix fails, the others still run, and the job is marked
+failed so you notice.
+
+To change the schedule, edit the `cron:` line in
 [.github/workflows/eclectolog.yml](.github/workflows/eclectolog.yml). GitHub can't read the
-schedule from a variable. Also note that GitHub pauses scheduled workflows on public repos after
-60 days without commits. You'll get an email, and one click re-enables it.
+schedule from a variable. GitHub also pauses scheduled workflows on public repos after 60 days
+without commits. You'll get an email, and one click re-enables it.
 
 ---
 
@@ -158,7 +152,10 @@ Settings are layered. Each layer overrides the one before it:
 4. [`interests.yaml`](interests.yaml) and the `ECLECTOLOG_INTERESTS_YAML` variable
 5. `ECLECTOLOG_*` repo variables, listed below
 6. Manual-run inputs (dry run, size, seed)
-7. Compass directives
+7. Each person's mix from the web app
+8. Each person's Compass directives
+
+Layers 1 to 6 apply to everyone. Layers 7 and 8 are per person.
 
 ### Repository variables
 
@@ -192,7 +189,7 @@ name starts with `ECLECTOLOG_` is picked up automatically, with no workflow edit
 | `ECLECTOLOG_CREATE_REFERENCE_PLAYLISTS` | `false` | Use them only if you create them yourself |
 | `ECLECTOLOG_COMPASS_PLAYLIST` / `_AVOID_PLAYLIST` | `My Compass` | Rename them |
 | `ECLECTOLOG_ARCHIVE_PLAYLIST` | `Eclectolog · Archive` | Optional: also log served tracks to a Spotify playlist (costs API calls, caps at 10k tracks) |
-| `ECLECTOLOG_STATE_KEEP_DAYS` | `365` | Forget served tracks older than this (default 730, 0 = forever) |
+| `ECLECTOLOG_STATE_KEEP_DAYS` | `365` | Forget mixes older than this (default 730, 0 = forever) |
 | `ECLECTOLOG_MARKET` | `US` | Default `from_token` (your account's country) |
 | `ECLECTOLOG_SEED` | `42` | Reproducible mixes |
 | `ECLECTOLOG_CONFIG_YAML` | *(multi-line YAML)* | Override any `config.yaml` key |
@@ -205,8 +202,42 @@ name starts with `ECLECTOLOG_` is picked up automatically, with no workflow edit
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+pytest -q                                         # tests (pip install pytest)
+```
+
+**Everyone, like the daily job:** put `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`,
+`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in `.env`, then:
+
+```bash
+python -m eclectolog --all-users --dry-run        # preview everyone's mix
+python -m eclectolog --all-users --user SPOTIFY_ID
+```
+
+**Just your own account, without Supabase:** history goes to `state/history.jsonl` instead.
+
+```bash
 python scripts/get_refresh_token.py --write-env   # once
 python -m eclectolog --dry-run                    # preview
 python -m eclectolog --size 25 --seed 7 -v        # for real
-pytest -q                                         # tests (pip install pytest)
 ```
+
+## Web app
+
+[`web/`](web) is a Next.js + Tailwind + shadcn/ui app where friends join with their Spotify
+account through Supabase Auth. On sign-in it saves their profile and Spotify refresh token. The
+dashboard shows their latest mix, and the profile page lets them set their mix weights.
+
+Everything is protected by row-level security. People can read only their own profile, mix
+weights and mixes, and only the service role (the daily job and the sign-in callback) can read
+Spotify tokens.
+
+### Run it
+
+```bash
+cd web
+cp .env.example .env.local   # fill in the Supabase URL and keys
+npm install
+npm run dev                  # http://localhost:3000
+```
+
+On Vercel, set **Root Directory** to `web` and add the same three variables from `.env.example`.

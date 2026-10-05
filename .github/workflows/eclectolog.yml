@@ -9,9 +9,13 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Dry run (print the mix, don't touch Spotify)"
+        description: "Dry run (print the mixes, don't touch Spotify or the database)"
         type: boolean
         default: false
+      user:
+        description: "Only this Spotify user ID (blank = everyone)"
+        type: string
+        required: false
       size:
         description: "Number of tracks (blank = configured default)"
         type: string
@@ -21,8 +25,10 @@ on:
         type: string
         required: false
 
+# Users, Spotify tokens, mix preferences and served history all live in Supabase,
+# so the job only needs to read the repo.
 permissions:
-  contents: write  # only used to push the history file to the eclectolog-state branch
+  contents: read
 
 concurrency:
   group: eclectolog
@@ -31,7 +37,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Users run one at a time with a pause between them (api.user_pause_seconds),
+    # roughly 1-2 minutes each.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -42,26 +50,12 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      # Served-track history lives on its own branch so main stays clean and runs cost
-      # no Spotify API calls to remember what they've played. Delete the branch to reset.
-      - name: Restore history
-        run: |
-          dir="$RUNNER_TEMP/state"
-          if git ls-remote --exit-code --heads origin eclectolog-state >/dev/null; then
-            git fetch --depth=1 origin eclectolog-state
-            git worktree add -B eclectolog-state "$dir" FETCH_HEAD
-          else
-            git worktree add --detach "$dir"
-            git -C "$dir" checkout --orphan eclectolog-state
-            git -C "$dir" rm -rfq .
-          fi
-          echo "ECLECTOLOG_STATE_FILE=$dir/history.jsonl" >> "$GITHUB_ENV"
-
-      - name: Build playlist
+      - name: Build playlists
         env:
           SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
           SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
-          SPOTIFY_REFRESH_TOKEN: ${{ secrets.SPOTIFY_REFRESH_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           # Every repository variable named ECLECTOLOG_* is picked up from this JSON,
           # so you can add new ones in Settings → Variables without editing this file.
           ECLECTOLOG_VARS_JSON: ${{ toJSON(vars) }}
@@ -69,32 +63,5 @@ jobs:
           ECLECTOLOG_DRY_RUN: ${{ inputs.dry_run && 'true' || '' }}
           ECLECTOLOG_PLAYLIST_SIZE: ${{ inputs.size }}
           ECLECTOLOG_SEED: ${{ inputs.seed }}
-        run: python -m eclectolog
-
-      - name: Save history
-        if: success()
-        run: |
-          cd "$RUNNER_TEMP/state"
-          [ -f history.jsonl ] || exit 0
-          git add history.jsonl
-          git diff --cached --quiet && exit 0
-          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -qm "History: $(date -u +%Y-%m-%d) run ${{ github.run_number }}"
-          git push -q origin HEAD:eclectolog-state
-
-      # Spotify occasionally rotates refresh tokens. If it does, store the new one so the
-      # next run still authenticates. Needs an optional GH_PAT secret: a fine-grained token
-      # for this repo with "Secrets: Read and write" permission.
-      - name: Save rotated refresh token
-        if: always()
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          f="$RUNNER_TEMP/eclectolog_refresh_token"
-          [ -f "$f" ] || exit 0
-          if [ -z "$GH_TOKEN" ]; then
-            echo "::warning::Spotify issued a new refresh token but GH_PAT isn't set. Re-run scripts/get_refresh_token.py if future runs fail to authenticate."
-            exit 0
-          fi
-          gh secret set SPOTIFY_REFRESH_TOKEN --repo "$GITHUB_REPOSITORY" < "$f"
-          echo "Updated SPOTIFY_REFRESH_TOKEN secret."
+          ONLY_USER: ${{ inputs.user }}
+        run: python -m eclectolog --all-users ${ONLY_USER:+--user "$ONLY_USER"}

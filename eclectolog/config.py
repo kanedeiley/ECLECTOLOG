@@ -63,7 +63,7 @@ DEFAULTS: dict[str, Any] = {
         "create_if_missing": True,
         "compass_playlist": "Eclectolog · Compass",
         "avoid_playlist": "Eclectolog · Avoid",
-        "archive_playlist": "Eclectolog · Archive",  # "" disables the archive
+        "archive_playlist": "",  # optional: also log served tracks to a Spotify playlist (costs API calls)
         "archive_lookback": 1000,
         "liked_feedback_boost": 1.5,
         "directive_genre_weight": 2.0,
@@ -81,6 +81,10 @@ DEFAULTS: dict[str, Any] = {
         "search_pace_seconds": 0.5,
     },
     "interests_file": "interests.yaml",
+    "state": {
+        "file": "state/history.jsonl",  # served-track history; the workflow keeps it on the eclectolog-state branch
+        "keep_days": 730,  # forget runs older than this (0 = keep forever)
+    },
     "market": "from_token",
     "seed": None,
     "dry_run": False,
@@ -155,6 +159,8 @@ ENV_OPTIONS: dict[str, tuple[str, Callable[[Any], Any], bool]] = {
     "AVOID_PLAYLIST": ("reference.avoid_playlist", str, False),
     "ARCHIVE_PLAYLIST": ("reference.archive_playlist", str, False),
     "MARKET": ("market", str, False),
+    "STATE_FILE": ("state.file", str, False),
+    "STATE_KEEP_DAYS": ("state.keep_days", int, False),
     "SEED": ("seed", _optional_int, False),
     "DRY_RUN": ("dry_run", _bool, False),
 }

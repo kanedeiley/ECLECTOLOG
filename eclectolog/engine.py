@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from .config import SOURCES, apply_directives
+from .history import ServedHistory
 from .models import ArtistSeed, Candidate, Track
 from .profile import Profile, build_profile, collect_history, compute_genres, enrich_genres
 from .references import References, create_playlist, load_references
@@ -154,7 +155,8 @@ def run(client: Spotify, cfg: dict, rng: random.Random, now: datetime) -> RunRes
     size = cfg["playlist"]["size"]
 
     avoid_ids = {t.primary_artist_id for t in refs.tracks_of("avoid")}
-    previous = refs.tracks_of("output") or refs.tracks_of("archive")[-size * 2 :]
+    served = ServedHistory.load(cfg["state"]["file"])
+    previous = refs.tracks_of("output") or served.last_tracks()
     liked = saved_subset(client, previous) if cfg["reference"]["liked_feedback_boost"] > 0 else []
 
     history = collect_history(client, cfg)
@@ -166,6 +168,8 @@ def run(client: Spotify, cfg: dict, rng: random.Random, now: datetime) -> RunRes
     for role in ("compass", "avoid", "archive", "output"):
         for t in refs.tracks_of(role):
             profile.add_known(t)
+    for t in served.all_tracks():
+        profile.add_known(t)
 
     if not profile.artists and not seeds:
         log.warning("No listening history or Compass seeds found; this mix will be all wildcards")
@@ -190,5 +194,7 @@ def run(client: Spotify, cfg: dict, rng: random.Random, now: datetime) -> RunRes
     )
     if picks and not cfg["dry_run"]:
         result.playlist_url = write_output(client, cfg, refs, name, picks, now, result.created_playlists)
+        served.add_run(now, name, picks, cfg["state"]["keep_days"])
+        served.save()
     result.api_calls = getattr(client, "calls", 0)
     return result

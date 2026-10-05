@@ -50,7 +50,7 @@ reference:
   create_if_missing: true  # creates the three playlists below on first run
   compass_playlist: "Eclectolog · Compass"
   avoid_playlist: "Eclectolog · Avoid"
-  archive_playlist: "Eclectolog · Archive"   # "" to disable repeat-prevention history
+  archive_playlist: ""     # optional browsable log in Spotify, e.g. "Eclectolog · Archive" (costs API calls)
   archive_lookback: 1000   # how many recent archive entries to treat as already served
   liked_feedback_boost: 1.5  # boost for artists whose tracks you saved from a previous mix
   directive_genre_weight: 2.0  # weight of genres named in a Compass "more:" directive
@@ -62,5 +62,11 @@ api:
   search_pace_seconds: 0.5
 
 interests_file: interests.yaml
+
+# Served-track history (prevents repeats, powers "you saved this" feedback). On GitHub the workflow
+# stores it on the eclectolog-state branch; locally it's a gitignored file.
+state:
+  file: state/history.jsonl
+  keep_days: 730           # forget runs older than this (0 = keep forever)
 market: from_token         # only pick tracks playable in your account's country
 seed: null                 # set an integer for reproducible mixes

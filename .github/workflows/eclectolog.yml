@@ -22,7 +22,7 @@ on:
         required: false
 
 permissions:
-  contents: read
+  contents: write  # only used to push the history file to the eclectolog-state branch
 
 concurrency:
   group: eclectolog
@@ -42,6 +42,21 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      # Served-track history lives on its own branch so main stays clean and runs cost
+      # no Spotify API calls to remember what they've played. Delete the branch to reset.
+      - name: Restore history
+        run: |
+          dir="$RUNNER_TEMP/state"
+          if git ls-remote --exit-code --heads origin eclectolog-state >/dev/null; then
+            git fetch --depth=1 origin eclectolog-state
+            git worktree add -B eclectolog-state "$dir" FETCH_HEAD
+          else
+            git worktree add --detach "$dir"
+            git -C "$dir" checkout --orphan eclectolog-state
+            git -C "$dir" rm -rfq .
+          fi
+          echo "ECLECTOLOG_STATE_FILE=$dir/history.jsonl" >> "$GITHUB_ENV"
+
       - name: Build playlist
         env:
           SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
@@ -55,6 +70,17 @@ jobs:
           ECLECTOLOG_PLAYLIST_SIZE: ${{ inputs.size }}
           ECLECTOLOG_SEED: ${{ inputs.seed }}
         run: python -m eclectolog
+
+      - name: Save history
+        if: success()
+        run: |
+          cd "$RUNNER_TEMP/state"
+          [ -f history.jsonl ] || exit 0
+          git add history.jsonl
+          git diff --cached --quiet && exit 0
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -qm "History: $(date -u +%Y-%m-%d) run ${{ github.run_number }}"
+          git push -q origin HEAD:eclectolog-state
 
       # Spotify occasionally rotates refresh tokens. If it does, store the new one so the
       # next run still authenticates. Needs an optional GH_PAT secret: a fine-grained token

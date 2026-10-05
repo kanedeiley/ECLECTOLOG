@@ -2,7 +2,8 @@
 
   Compass  add songs you want more of; type directives into its description (more: dub; size: 30)
   Avoid    add songs whose artists should never appear
-  Archive  every track Eclectolog has served, so it doesn't repeat itself (delete it to reset)
+  Archive  optional (off by default): a browsable log of served tracks. Repeat prevention uses
+           the history file instead (see history.py), which costs no API calls.
 """
 from __future__ import annotations
 

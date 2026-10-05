@@ -29,9 +29,12 @@ Three things stop it from converging on one taste:
   played 100× more often gets about 16× the chance of being picked, not 100×.
 - **Hard caps.** One track per artist and four per genre. Wildcards skip your ten heaviest genres.
 
-It never repeats itself. Anything in your history, Liked Songs sample, previous mix or the
-**Archive** playlist is skipped. If you ❤️ a track from a previous mix, that artist gets boosted
-next time.
+It never repeats itself. Anything in your listening history, your Liked Songs sample or any
+previous mix is skipped. If you ❤️ a track from a previous mix, that artist gets boosted next time.
+
+Every track served is logged to `history.jsonl` on a separate **`eclectolog-state`** branch, one
+line per run. That costs no Spotify API calls, never expires, and comes to about 2 MB a year.
+Browse the branch to see past mixes, or delete it to reset.
 
 Every run writes a job summary listing each track with *why* it was picked.
 
@@ -101,8 +104,8 @@ Go to **Settings → Secrets and variables → Actions → Secrets** and add:
 Go to **Actions → Eclectolog → Run workflow** and tick **Dry run** first. The job summary shows
 the mix without changing anything. Then run it for real.
 
-The first real run creates four private playlists in your library: **Eclectolog**, plus
-**Eclectolog · Compass**, **Eclectolog · Avoid** and **Eclectolog · Archive**.
+The first real run creates three private playlists in your library: **Eclectolog**, plus
+**Eclectolog · Compass** and **Eclectolog · Avoid**. It also creates the `eclectolog-state` branch.
 
 After that it runs every day at 01:07 UTC (9 PM US Eastern in summer) on its own. To change the schedule, edit the `cron:` line in
 [.github/workflows/eclectolog.yml](.github/workflows/eclectolog.yml). GitHub can't read the
@@ -117,7 +120,6 @@ schedule from a variable. Also note that GitHub pauses scheduled workflows on pu
 |---|---|---|
 | **Eclectolog · Compass** | Add songs you want more of | Their artists become Compass seeds; their genres are explored with new artists |
 | **Eclectolog · Avoid** | Add a song | That artist never appears in a mix |
-| **Eclectolog · Archive** | Nothing (delete it to reset) | Remembers every track served so none repeat |
 | **Eclectolog** | ❤️ tracks you love | Those artists get a boost next run |
 
 ### Compass directives
@@ -184,9 +186,11 @@ name starts with `ECLECTOLOG_` is picked up automatically, with no workflow edit
 | `ECLECTOLOG_AVOID_ARTISTS` | `Some Band` | |
 | `ECLECTOLOG_WILDCARD_GENRES` | `gamelan, zydeco` | Added to the wildcard pool |
 | `ECLECTOLOG_ERA_CHANCE` | `0.5` | |
-| `ECLECTOLOG_REFERENCE_PLAYLISTS` | `false` | Turn off Compass/Avoid/Archive entirely |
+| `ECLECTOLOG_REFERENCE_PLAYLISTS` | `false` | Turn off the Compass and Avoid playlists entirely |
 | `ECLECTOLOG_CREATE_REFERENCE_PLAYLISTS` | `false` | Use them only if you create them yourself |
-| `ECLECTOLOG_COMPASS_PLAYLIST` / `_AVOID_PLAYLIST` / `_ARCHIVE_PLAYLIST` | `My Compass` | Rename; an empty archive name disables it |
+| `ECLECTOLOG_COMPASS_PLAYLIST` / `_AVOID_PLAYLIST` | `My Compass` | Rename them |
+| `ECLECTOLOG_ARCHIVE_PLAYLIST` | `Eclectolog · Archive` | Optional: also log served tracks to a Spotify playlist (costs API calls, caps at 10k tracks) |
+| `ECLECTOLOG_STATE_KEEP_DAYS` | `365` | Forget served tracks older than this (default 730, 0 = forever) |
 | `ECLECTOLOG_MARKET` | `US` | Default `from_token` (your account's country) |
 | `ECLECTOLOG_SEED` | `42` | Reproducible mixes |
 | `ECLECTOLOG_CONFIG_YAML` | *(multi-line YAML)* | Override any `config.yaml` key |

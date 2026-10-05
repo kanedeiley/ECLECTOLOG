@@ -1,3 +1,4 @@
+import json
 import random
 from collections import Counter
 from datetime import datetime, timezone
@@ -14,6 +15,7 @@ NOW = datetime(2026, 10, 4, 12, tzinfo=timezone.utc)
 
 
 def cfg_for(tmp_path, **env):
+    env.setdefault("STATE_FILE", str(tmp_path / "state" / "history.jsonl"))
     return load_config(environ={f"ECLECTOLOG_{k}": str(v) for k, v in env.items()}, base_dir=tmp_path)
 
 
@@ -60,7 +62,7 @@ def test_end_to_end_creates_playlists_and_respects_caps(tmp_path):
     result = run(fake, cfg, random.Random(7), NOW)
 
     assert len(result.picks) == 30
-    assert set(result.created_playlists) == {"Eclectolog · Compass", "Eclectolog · Avoid", "Eclectolog · Archive", "Eclectolog"}
+    assert set(result.created_playlists) == {"Eclectolog · Compass", "Eclectolog · Avoid", "Eclectolog"}
     artists = Counter(c.track.primary_artist_id for c in result.picks)
     assert max(artists.values()) == 1
     genres = Counter(c.genre for c in result.picks if c.genre)
@@ -71,7 +73,8 @@ def test_end_to_end_creates_playlists_and_respects_caps(tmp_path):
 
     by_name = {p["name"]: p for p in fake.playlists.values()}
     assert len(by_name["Eclectolog"]["tracks"]) == 30
-    assert len(by_name["Eclectolog · Archive"]["tracks"]) == 30
+    history = (tmp_path / "state" / "history.jsonl").read_text().splitlines()
+    assert len(history) == 1 and len(json.loads(history[0])["tracks"]) == 30
 
 
 def test_second_run_uses_compass_directives_avoid_and_no_repeats(tmp_path):
@@ -104,6 +107,30 @@ def test_dry_run_writes_nothing(tmp_path):
     result = run(fake, cfg_for(tmp_path, DRY_RUN="true", PLAYLIST_SIZE=10), random.Random(3), NOW)
     assert len(result.picks) == 10
     assert fake.log == [] and fake.playlists == {}
+    assert not (tmp_path / "state").exists()
+
+
+def test_history_file_prevents_repeats_in_new_mode(tmp_path):
+    # "new" mode makes a fresh playlist per day, so only the history file knows what was served.
+    fake = FakeSpotify(NOW)
+    first = run(fake, cfg_for(tmp_path, PLAYLIST_MODE="new", PLAYLIST_SIZE=15), random.Random(1), NOW)
+    later = NOW.replace(day=5)
+    second = run(fake, cfg_for(tmp_path, PLAYLIST_MODE="new", PLAYLIST_SIZE=15), random.Random(1), later)
+    assert not {c.track.id for c in first.picks} & {c.track.id for c in second.picks}
+    assert len((tmp_path / "state" / "history.jsonl").read_text().splitlines()) == 2
+
+
+def test_history_prunes_old_runs_and_survives_corruption(tmp_path):
+    from eclectolog.history import ServedHistory
+    path = tmp_path / "h.jsonl"
+    h = ServedHistory.load(path)
+    t = Track("x", "spotify:track:x", "X", (("a", "A"),))
+    h.add_run(NOW.replace(year=2024), "old", [Candidate(t, "wildcard", "")], keep_days=0)
+    h.add_run(NOW, "new", [Candidate(t, "wildcard", "")], keep_days=30)
+    h.save()
+    assert [r["playlist"] for r in ServedHistory.load(path).runs] == ["new"]
+    path.write_text("{not json\n")
+    assert ServedHistory.load(path).runs == [] and (tmp_path / "h.corrupt").exists()
 
 
 def test_search_budget_caps_calls_and_deep_cuts_fill_the_rest(tmp_path):

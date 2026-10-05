@@ -14,6 +14,9 @@ const FRIENDLY_ERRORS: Record<string, string> = {
   over_email_send_rate_limit: "Too many sign-in attempts. Wait a minute, then try again.",
 }
 
+const NOT_INVITED =
+  "Your Spotify account isn't on the invite list yet. Ask whoever runs this Eclectolog to add your Spotify email, then try again."
+
 function fail(origin: string, error: string) {
   return NextResponse.redirect(`${origin}/?error=${encodeURIComponent(error)}`)
 }
@@ -25,6 +28,8 @@ export async function GET(request: NextRequest) {
   const errorCode = searchParams.get("error_code")
   if (errorCode && errorCode in FRIENDLY_ERRORS) return fail(origin, FRIENDLY_ERRORS[errorCode])
   const oauthError = searchParams.get("error_description") ?? searchParams.get("error")
+  // Supabase reports Spotify's Development Mode 403 (account not on the app's User Management list) this way.
+  if (oauthError?.includes("Error getting user profile from external provider")) return fail(origin, NOT_INVITED)
   if (oauthError) return fail(origin, oauthError)
   if (!code) return fail(origin, "Spotify did not return an authorization code.")
 
@@ -46,9 +51,7 @@ export async function GET(request: NextRequest) {
     await supabase.auth.signOut()
     return fail(
       origin,
-      err instanceof SpotifyForbiddenError
-        ? "Your Spotify account isn't on the invite list yet. Ask whoever runs this Eclectolog to add you."
-        : "Couldn't load your Spotify profile. Please try again.",
+      err instanceof SpotifyForbiddenError ? NOT_INVITED : "Couldn't load your Spotify profile. Please try again.",
     )
   }
 

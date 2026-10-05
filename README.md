@@ -41,6 +41,12 @@ latest mix from there. Mixes older than two years are dropped.
 
 Each mix lists every track with *why* it was picked, in the dashboard and in the job summary.
 
+Playlists that still have Spotify's automatic cover get Eclectolog's record artwork from
+[`eclectolog/covers/`](eclectolog/covers). A cover you set yourself is never replaced. This needs
+the `ugc-image-upload` permission, so anyone who joined before it was added should sign in again.
+If a cover can't be set, the run logs a warning and carries on. Set `playlist.covers: false` to
+turn this off.
+
 > **About the Spotify API (2026):** Spotify removed `/recommendations`, related artists, audio
 > features (Nov 2024), artist top tracks, track and artist `popularity`, and capped search at 10
 > results (Feb 2026). Eclectolog only uses endpoints that still work for Development Mode apps.

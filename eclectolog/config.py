@@ -30,6 +30,7 @@ DEFAULTS: dict[str, Any] = {
         "size": 40,
         "public": False,
         "date_format": "%Y-%m-%d",
+        "covers": True,  # put the cover art from eclectolog/covers/ on playlists that still have Spotify's default
     },
     "history": {
         "recent_weight": 1.0,  # base weight of each of your last 50 plays
@@ -134,6 +135,7 @@ ENV_OPTIONS: dict[str, tuple[str, Callable[[Any], Any], bool]] = {
     "PLAYLIST_MODE": ("playlist.mode", str, False),
     "PLAYLIST_SIZE": ("playlist.size", int, False),
     "PLAYLIST_PUBLIC": ("playlist.public", _bool, False),
+    "PLAYLIST_COVERS": ("playlist.covers", _bool, False),
     "RECENCY_BOOST": ("history.recency_boost", float, False),
     "RECENCY_HALF_LIFE_HOURS": ("history.recency_half_life_hours", float, False),
     "TEMPERATURE": ("history.temperature", float, False),

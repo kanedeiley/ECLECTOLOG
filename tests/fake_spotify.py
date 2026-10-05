@@ -87,6 +87,15 @@ class FakeSpotify:
             self.playlists[pid]["tracks"] = [{"id": u.split(":")[-1]} for u in json["uris"]]
         return {}
 
+    def request(self, method, path, *, params=None, json=None, data=None, content_type=None):
+        """Only cover uploads come through here; set `cover_error` to simulate a failure."""
+        self.calls += 1
+        self.log.append((method, path, content_type))
+        if getattr(self, "cover_error", None):
+            raise self.cover_error
+        self.playlists[path.split("/")[2]]["cover"] = data
+        return {}
+
     def paginate(self, path, params=None, max_items=None):
         items = self._collection(path, params or {})
         return iter(items[:max_items] if max_items else items)

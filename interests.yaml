@@ -1,0 +1,27 @@
+# Interests: things you want Eclectolog to steer toward (or away from). All optional.
+# These feed the "compass" source and get a gentle boost in genre exploration.
+# To steer without committing to the repo, use the Compass playlist on Spotify instead (see README).
+
+# Genres as a list, or as a map of genre: weight (1.0 = as strong as an average genre you play).
+# Use Spotify genre names, e.g. the ones in eclectolog/genres.py.
+genres: []
+#  bossa nova: 1.5
+#  krautrock: 1.0
+#  spiritual jazz: 1.0
+
+# Artists to use as seeds, looked up by name.
+artists: []
+#  - Khruangbin
+#  - Alice Coltrane
+
+# Eras for wildcard picks: 1970s, 1994, or 1965-1979. Empty = all eras.
+eras: []
+
+# Free-text searches mixed into wildcards.
+keywords: []
+#  - field recordings
+#  - lo-fi bossa
+
+avoid:
+  genres: []      # substring match, so "christmas" also blocks "christmas pop"
+  artists: []     # exact names

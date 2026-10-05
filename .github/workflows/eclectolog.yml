@@ -1,0 +1,74 @@
+name: Eclectolog
+
+on:
+  schedule:
+    # Daily at 01:07 UTC = 9:07 PM US Eastern in summer (EDT), 8:07 PM in winter (EST).
+    # GitHub cron is always UTC and can't read variables, so edit this line to change it.
+    # Off-the-hour minutes get delayed less when GitHub is busy. Helper: https://crontab.guru
+    - cron: "7 1 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (print the mix, don't touch Spotify)"
+        type: boolean
+        default: false
+      size:
+        description: "Number of tracks (blank = configured default)"
+        type: string
+        required: false
+      seed:
+        description: "Random seed for a reproducible mix (blank = random)"
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eclectolog
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Build playlist
+        env:
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
+          SPOTIFY_REFRESH_TOKEN: ${{ secrets.SPOTIFY_REFRESH_TOKEN }}
+          # Every repository variable named ECLECTOLOG_* is picked up from this JSON,
+          # so you can add new ones in Settings → Variables without editing this file.
+          ECLECTOLOG_VARS_JSON: ${{ toJSON(vars) }}
+          # Manual-run inputs override repository variables (blank on scheduled runs).
+          ECLECTOLOG_DRY_RUN: ${{ inputs.dry_run && 'true' || '' }}
+          ECLECTOLOG_PLAYLIST_SIZE: ${{ inputs.size }}
+          ECLECTOLOG_SEED: ${{ inputs.seed }}
+        run: python -m eclectolog
+
+      # Spotify occasionally rotates refresh tokens. If it does, store the new one so the
+      # next run still authenticates. Needs an optional GH_PAT secret: a fine-grained token
+      # for this repo with "Secrets: Read and write" permission.
+      - name: Save rotated refresh token
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          f="$RUNNER_TEMP/eclectolog_refresh_token"
+          [ -f "$f" ] || exit 0
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::Spotify issued a new refresh token but GH_PAT isn't set. Re-run scripts/get_refresh_token.py if future runs fail to authenticate."
+            exit 0
+          fi
+          gh secret set SPOTIFY_REFRESH_TOKEN --repo "$GITHUB_REPOSITORY" < "$f"
+          echo "Updated SPOTIFY_REFRESH_TOKEN secret."

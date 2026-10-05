@@ -1,0 +1,66 @@
+# Eclectolog configuration. Every key is optional; anything left out uses the built-in default.
+# Most keys can also be set with GitHub repository variables (ECLECTOLOG_*), see the README,
+# and some can be changed from Spotify by editing the Compass playlist description.
+
+playlist:
+  name: Eclectolog
+  mode: replace          # replace = one rolling playlist; new = a fresh dated playlist each run
+  size: 40
+  public: false
+  date_format: "%Y-%m-%d"   # used in "new" mode names
+
+history:
+  recent_weight: 1.0       # base weight of each of your last 50 plays
+  recency_boost: 0.35      # a play from right now counts 1.35x and decays toward 1x. Keep it small.
+  recency_half_life_hours: 72
+  top_terms:               # Spotify's top-items windows; long_term keeps old loves in the mix
+    short_term: 1.0        # ~4 weeks
+    medium_term: 1.0       # ~6 months
+    long_term: 1.0         # ~1 year
+  top_limit: 50
+  saved_tracks: 100        # Liked Songs to sample (0 = ignore)
+  saved_weight: 0.5
+  temperature: 0.6         # 1.0 = raw weights; lower flattens so no single artist/genre dominates
+  genre_lookups: 10        # artist lookups used to learn genres (one API call each)
+
+# Share of the playlist each source fills. These are relative weights, not percentages.
+mix:
+  deep_cuts: 0.25          # unheard tracks from artists you already play
+  genre_neighbors: 0.35    # new artists in genres you listen to
+  wildcard: 0.20           # genres you don't listen to, sometimes pinned to an era
+  compass: 0.20            # Compass playlist + interests.yaml
+
+diversity:
+  max_per_artist: 1
+  max_per_genre: 4
+  search_depth: 300        # how far down search results to dig (0-1000). Deeper = less mainstream.
+  novel_artists_only: true # neighbors/wildcards only pick artists not in your history
+  search_budget: 40        # max search calls per run. Spotify hands out ~24h search bans for heavy use.
+  discography_chance: 0.3  # deep cuts: chance to browse the artist's releases instead of albums you've played
+
+wildcard:
+  use_builtin_genres: true # ~200 genres across eras and regions (eclectolog/genres.py)
+  genres: []               # extra wildcard genres
+  era_chance: 0.35         # chance a wildcard pick is pinned to a random era
+  keyword_chance: 0.25     # chance to use a keyword from interests.yaml instead of a genre
+  eras: [1950s, 1960s, 1970s, 1980s, 1990s, 2000s, 2010s, 2020s]
+
+reference:
+  enabled: true
+  create_if_missing: true  # creates the three playlists below on first run
+  compass_playlist: "Eclectolog · Compass"
+  avoid_playlist: "Eclectolog · Avoid"
+  archive_playlist: "Eclectolog · Archive"   # "" to disable repeat-prevention history
+  archive_lookback: 1000   # how many recent archive entries to treat as already served
+  liked_feedback_boost: 1.5  # boost for artists whose tracks you saved from a previous mix
+  directive_genre_weight: 2.0  # weight of genres named in a Compass "more:" directive
+
+# Spotify Development Mode apps are rate-limited hard: overdo it and an endpoint gets banned for ~24h.
+api:
+  max_reads: 300           # hard cap on GET requests per run (playlist writes are exempt)
+  pace_seconds: 0.15       # min gap between requests
+  search_pace_seconds: 0.5
+
+interests_file: interests.yaml
+market: from_token         # only pick tracks playable in your account's country
+seed: null                 # set an integer for reproducible mixes

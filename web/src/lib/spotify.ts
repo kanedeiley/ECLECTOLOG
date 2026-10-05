@@ -7,6 +7,7 @@ export const SPOTIFY_SCOPES = [
   "playlist-read-collaborative",
   "playlist-modify-private",
   "playlist-modify-public",
+  "ugc-image-upload", // playlist covers
 ].join(" ")
 
 export interface SpotifyMe {

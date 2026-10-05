@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from .config import SOURCES, apply_directives
+from .covers import apply_covers
 from .history import ServedHistory
 from .models import ArtistSeed, Candidate, Track
 from .profile import Profile, build_profile, collect_history, compute_genres, enrich_genres
@@ -131,6 +132,7 @@ def write_output(client: Spotify, cfg: dict, refs: References, name: str, picks:
     if pl is None:
         pl = create_playlist(client, name, desc, cfg["playlist"]["public"])
         created.append(name)
+        refs.playlists["output"] = pl
     else:
         client.put(f"/playlists/{pl['id']}", {"description": desc})
 
@@ -198,6 +200,8 @@ def run(
     )
     if picks and not cfg["dry_run"]:
         result.playlist_url = write_output(client, cfg, refs, name, picks, now, result.created_playlists)
+        if cfg["playlist"]["covers"]:
+            apply_covers(client, refs.playlists)  # best effort: only ever logs warnings
         served.add_run(now, name, picks, cfg["state"]["keep_days"], url=result.playlist_url)
         served.save()
     result.api_calls = getattr(client, "calls", 0)

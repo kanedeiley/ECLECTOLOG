@@ -23,6 +23,7 @@ SCOPES = (
     "playlist-read-collaborative",
     "playlist-modify-private",
     "playlist-modify-public",
+    "ugc-image-upload",  # playlist covers; optional, a missing grant only skips them
 )
 
 
@@ -110,7 +111,10 @@ class Spotify:
             if self.on_token_rotated:
                 self.on_token_rotated(rotated)
 
-    def request(self, method: str, path: str, *, params: dict | None = None, json: Any = None) -> Any:
+    def request(
+        self, method: str, path: str, *, params: dict | None = None, json: Any = None,
+        data: str | bytes | None = None, content_type: str | None = None,
+    ) -> Any:
         url = path if path.startswith("http") else API_URL + path
         key = endpoint_key(url)
         if self.is_blocked(key):
@@ -130,9 +134,11 @@ class Spotify:
                 self._last_call[pace_key] = time.time()
             self.calls += 1
             try:
+                headers = {"Authorization": f"Bearer {self._access_token}"}
+                if content_type:
+                    headers["Content-Type"] = content_type
                 resp = self.session.request(
-                    method, url, params=params, json=json,
-                    headers={"Authorization": f"Bearer {self._access_token}"}, timeout=30,
+                    method, url, params=params, json=json, data=data, headers=headers, timeout=30,
                 )
             except requests.RequestException as exc:
                 if attempt == self.max_retries:

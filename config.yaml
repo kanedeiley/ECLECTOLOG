@@ -8,6 +8,7 @@ playlist:
   size: 40
   public: false
   date_format: "%Y-%m-%d"   # used in "new" mode names
+  covers: true           # cover art from eclectolog/covers/ on playlists still showing Spotify's default
 
 history:
   recent_weight: 1.0       # base weight of each of your last 50 plays

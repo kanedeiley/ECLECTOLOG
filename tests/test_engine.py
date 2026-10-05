@@ -157,3 +157,25 @@ def test_deep_cuts_can_run_on_known_albums_alone(tmp_path):
     result = run(fake, cfg, random.Random(2), NOW)
     assert result.picks and all(c.source == "deep_cuts" for c in result.picks)
     assert fake.album_list_calls == 0
+
+
+def test_covers_are_set_once_and_failures_only_warn(tmp_path, caplog):
+    from eclectolog.covers import apply_covers, has_custom_cover
+    from eclectolog.spotify import SpotifyError
+
+    fake = FakeSpotify(NOW)
+    run(fake, cfg_for(tmp_path, PLAYLIST_SIZE=10), random.Random(1), NOW)
+    covered = [p["name"] for p in fake.playlists.values() if p.get("cover")]
+    assert sorted(covered) == ["Eclectolog", "Eclectolog · Avoid", "Eclectolog · Compass"]
+
+    assert not has_custom_cover({"images": [{"url": "https://mosaic.scdn.co/640/ab67616d..."}]})
+    assert not has_custom_cover({"images": [{"url": "https://i.scdn.co/image/ab67616d0000b273abc"}]})
+    assert has_custom_cover({"images": [{"url": "https://i.scdn.co/image/ab67706c0000da84abc"}]})
+
+    fake.cover_error = SpotifyError("PUT -> 401: missing scope", 401)
+    warnings = apply_covers(fake, {"output": {"id": "pl1", "name": "Eclectolog", "images": []},
+                                   "compass": {"id": "pl2", "name": "C", "images": []}})
+    assert len(warnings) == 1 and "Sign in again" in warnings[0]  # one warning, then it stops trying
+
+    fake.cover_error = RuntimeError("boom")
+    assert apply_covers(fake, {"output": {"id": "pl1", "name": "Eclectolog", "images": []}})  # warned, not raised

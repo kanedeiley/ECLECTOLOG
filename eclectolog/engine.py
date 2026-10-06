@@ -174,8 +174,11 @@ def run(
     for role in ("compass", "avoid", "archive", "output"):
         for t in refs.tracks_of(role):
             profile.add_known(t)
+            if role in ("archive", "output"):
+                profile.served_artists.update(t.artist_ids)
     for t in served.all_tracks():
         profile.add_known(t)
+        profile.served_artists.update(t.artist_ids)
 
     if not profile.artists and not seeds:
         log.warning("No listening history or Compass seeds found; this mix will be all wildcards")

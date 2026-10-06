@@ -179,3 +179,52 @@ def test_covers_are_set_once_and_failures_only_warn(tmp_path, caplog):
 
     fake.cover_error = RuntimeError("boom")
     assert apply_covers(fake, {"output": {"id": "pl1", "name": "Eclectolog", "images": []}})  # warned, not raised
+
+
+def sources_for(tmp_path, profile=None, **env):
+    from eclectolog.profile import Profile
+    from eclectolog.sources import Selector, Sources
+    cfg = cfg_for(tmp_path, **env)
+    return Sources(FakeSpotify(NOW), cfg, profile or Profile({}), Selector(1, 4), random.Random(3))
+
+
+def test_search_offsets_skip_the_mainstream_head_on_every_attempt(tmp_path):
+    src = sources_for(tmp_path, SEARCH_DEPTH=300, MIN_OFFSET=50)
+    offsets = [src._offset("q") for _ in range(300)]
+    assert min(offsets) >= 50 and max(offsets) <= 300
+    assert sum(offsets) / len(offsets) > 175  # leans deep, not uniform
+    src._totals["q"] = 120  # a retry once the total is known stays deep but in range
+    assert all(50 <= src._offset("q") <= 110 for _ in range(100))
+    src._totals["small"] = 30  # smaller than min_offset: niche already, take what's there
+    assert all(0 <= src._offset("small") <= 20 for _ in range(100))
+
+
+def test_novelty_covers_past_mixes_and_featured_artists(tmp_path):
+    from eclectolog.models import ArtistSeed
+    from eclectolog.profile import Profile
+    profile = Profile({"home": ArtistSeed("home", "Home")}, served_artists={"served"})
+    src = sources_for(tmp_path, profile)
+    t = lambda tid, *aids: Track(tid, tid, tid, tuple((a, a) for a in aids))
+    assert src._fresh(t("1", "stranger"), novel=True)
+    assert not src._fresh(t("2", "served"), novel=True)  # served in an earlier mix
+    assert not src._fresh(t("3", "stranger", "home"), novel=True)  # known artist as a feature
+    assert src._fresh(t("4", "served"), novel=False)  # deep cuts don't need a new artist
+
+
+def test_compilations_are_skipped(tmp_path):
+    src = sources_for(tmp_path)
+    t = lambda tid, **kw: Track(tid, tid, tid, (("x" + tid, "X"),), **kw)
+    assert src._fresh(t("1", album="Sunrise", album_type="album"))
+    assert not src._fresh(t("2", album="Sunrise", album_type="compilation"))
+    assert not src._fresh(t("3", album="The Very Best Of X", album_type="album"))
+    assert sources_for(tmp_path, SKIP_COMPILATIONS="false")._fresh(t("4", album_type="compilation"))
+
+
+def test_neighbors_hop_to_collaborators_of_artists_you_play(tmp_path):
+    fake = FakeSpotify(NOW)
+    cfg = cfg_for(tmp_path, PLAYLIST_SIZE=4, DRY_RUN="true", COLLABORATOR_CHANCE=1,
+                  MIX="deep_cuts=0,genre_neighbors=1,wildcard=0,compass=0")
+    result = run(fake, cfg, random.Random(4), NOW)
+    hops = [c for c in result.picks if "who's worked with" in c.reason]
+    assert hops and all(c.track.primary_artist_id.startswith("collab") for c in hops)
+    assert not {c.track.primary_artist_id for c in hops} & set(result.profile.artists)

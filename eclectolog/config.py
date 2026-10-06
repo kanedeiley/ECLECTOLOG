@@ -48,9 +48,12 @@ DEFAULTS: dict[str, Any] = {
         "max_per_artist": 1,
         "max_per_genre": 4,
         "search_depth": 300,  # how far down search results to dig (max 1000); deeper = less mainstream
+        "min_offset": 50,  # always skip this many top results (the most popular) when a search has that many
         "novel_artists_only": True,  # genre_neighbors/wildcard only pick artists absent from your history
         "search_budget": 40,  # max search calls per run; Spotify bans apps that search too much
         "discography_chance": 0.3,  # deep cuts: chance to browse the artist's releases vs. albums you've played
+        "collaborator_chance": 0.35,  # neighbors/compass: chance to hop to an artist who's worked with a seed
+        "skip_compilations": True,  # "Greatest Hits" and other compilations are mainstream by construction
     },
     "wildcard": {
         "use_builtin_genres": True,
@@ -146,7 +149,10 @@ ENV_OPTIONS: dict[str, tuple[str, Callable[[Any], Any], bool]] = {
     "SEARCH_DEPTH": ("diversity.search_depth", int, False),
     "NOVEL_ARTISTS_ONLY": ("diversity.novel_artists_only", _bool, False),
     "SEARCH_BUDGET": ("diversity.search_budget", int, False),
+    "MIN_OFFSET": ("diversity.min_offset", int, False),
     "DISCOGRAPHY_CHANCE": ("diversity.discography_chance", float, False),
+    "COLLABORATOR_CHANCE": ("diversity.collaborator_chance", float, False),
+    "SKIP_COMPILATIONS": ("diversity.skip_compilations", _bool, False),
     "MAX_API_READS": ("api.max_reads", int, False),
     "WILDCARD_GENRES": ("wildcard.genres", _list, True),
     "ERA_CHANCE": ("wildcard.era_chance", float, False),
@@ -325,6 +331,10 @@ def validate(cfg: dict) -> None:
         raise ConfigError("diversity.search_budget must be >= 0")
     if not 0 <= int(d["search_depth"]) <= 1000:
         raise ConfigError("diversity.search_depth must be between 0 and 1000")
+    if not 0 <= int(d["min_offset"]) <= 1000:
+        raise ConfigError("diversity.min_offset must be between 0 and 1000")
+    if not 0 <= float(d["collaborator_chance"]) <= 1:
+        raise ConfigError("diversity.collaborator_chance must be between 0 and 1")
     for era in cfg["interests"]["eras"] + list(cfg["wildcard"]["eras"]):
         parse_era(era)
 

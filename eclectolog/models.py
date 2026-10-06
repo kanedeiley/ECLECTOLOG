@@ -19,6 +19,7 @@ class Track:
     artists: tuple[tuple[str, str], ...]  # (artist_id, artist_name)
     album: str = ""
     album_id: str = ""
+    album_type: str = ""  # album / single / compilation; empty when unknown (e.g. from history)
 
     @property
     def artist_ids(self) -> tuple[str, ...]:
@@ -57,6 +58,7 @@ def parse_track(obj: dict | None, album: dict | None = None) -> Track | None:
         artists=artists,
         album=album.get("name") or "",
         album_id=album.get("id") or "",
+        album_type=album.get("album_type") or "",
     )
 
 

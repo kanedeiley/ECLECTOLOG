@@ -55,7 +55,10 @@ class FakeSpotify:
             alb = path.split("/")[2]
             aid = alb.split("-")[0]
             name = HOME_ARTISTS.get(aid, (aid, []))[0]
-            return {"items": [track(f"{alb}-t{i}", f"{alb} song {i}", [(aid, name)]) | {"album": None} for i in range(8)]}
+            # Home artists' first track has a feature, so collaborator hops have somewhere to go.
+            feat = [(f"collab{aid}", f"Collab of {name}")] if aid in HOME_ARTISTS else []
+            return {"items": [track(f"{alb}-t{i}", f"{alb} song {i}", [(aid, name)] + (feat if i == 0 else [])) | {"album": None}
+                              for i in range(8)]}
         if path.startswith("/artists/"):
             aid = path.split("/")[2]
             name, genres = HOME_ARTISTS.get(aid, (aid, ["unknown"]))

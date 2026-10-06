@@ -7,11 +7,15 @@ changes (no /recommendations, related-artists, artist top-tracks or popularity):
   genre_neighbors  a track from one of your (flattened) genres, by an artist new to you
   wildcard         a genre you don't listen to, optionally pinned to an era or keyword
   compass          artists/genres from your Compass playlist, interests.yaml and `more:` directives
+
+With related-artists gone, neighbors and compass sometimes hop to a collaborator instead: an artist
+credited alongside a seed (features, remixes, splits), which tends to land on smaller, adjacent acts.
 """
 from __future__ import annotations
 
 import logging
 import random
+import re
 from collections import Counter
 from typing import Callable
 
@@ -26,6 +30,8 @@ log = logging.getLogger(__name__)
 SEARCH_LIMIT = 10  # Spotify's Dev Mode maximum since Feb 2026
 ALBUM_LIMIT = 10  # /artists/{id}/albums rejects anything larger (undocumented, observed Oct 2026)
 MAX_OFFSET = 1000 - SEARCH_LIMIT
+# Compilations that Spotify doesn't label as such still tend to have one of these in the title.
+COMPILATION_TITLE = re.compile(r"greatest hits|best of|the essential|anthology", re.IGNORECASE)
 
 
 class Selector:
@@ -93,11 +99,15 @@ class Sources:
         self.avoid_genres = cfg["interests"]["avoid"]["genres"]
         self.market = cfg.get("market") or None
         self.depth = min(int(cfg["diversity"]["search_depth"]), MAX_OFFSET)
+        self.min_offset = int(cfg["diversity"]["min_offset"])
+        self.skip_compilations = bool(cfg["diversity"]["skip_compilations"])
+        self.collaborator_chance = float(cfg["diversity"]["collaborator_chance"])
 
         self._albums: dict[str, list[dict]] = {}
         self._album_tracks: dict[str, list[Track]] = {}
         self._search: dict[tuple[str, int], list[Track]] = {}
         self._totals: dict[str, int] = {}
+        self._collabs: dict[str, dict[str, str]] = {}  # seed artist id -> {collaborator id: name}
         self.dead_genres: set[str] = set()  # genres Spotify's genre: filter doesn't recognise
         self.search_budget = int(cfg["diversity"]["search_budget"])
         self.discography_chance = float(cfg["diversity"]["discography_chance"])
@@ -136,7 +146,18 @@ class Sources:
             return False
         if any(n.lower() in self.avoid_artist_names for n in t.artist_names) or self.selector.any_artist_full(t):
             return False
-        return not (novel and t.primary_artist_id in self.profile.artists)
+        if self.skip_compilations and (t.album_type == "compilation" or COMPILATION_TITLE.search(t.album)):
+            return False
+        # Every credited artist counts, so a known name can't slip in as a feature.
+        return not (novel and any(self.profile.knows_artist(a) for a in t.artist_ids))
+
+    def _new_artist(self, artist_id: str, name: str) -> bool:
+        return not (
+            self.profile.knows_artist(artist_id)
+            or artist_id in self.avoid_artist_ids
+            or name.lower() in self.avoid_artist_names
+            or self.selector.artist_full(artist_id)
+        )
 
     def _params(self, **extra) -> dict:
         if self.market:
@@ -193,12 +214,17 @@ class Sources:
             self._search[key] = [t for t in (parse_track(x) for x in block.get("items") or []) if t]
         return self._search[key]
 
-    def _offset(self, query: str, attempt: int) -> int:
-        """Random dig into results; deeper offsets skip the mainstream head of the list."""
-        depth = self.depth if attempt == 0 else min(self.depth, 30)
+    def _offset(self, query: str) -> int:
+        """Random dig into results, skipping the mainstream head of the list and leaning deep.
+
+        Results come back roughly by popularity, so retries stay deep too; once the total is
+        known the range shrinks to fit. Result sets smaller than min_offset are niche already.
+        """
+        hi = self.depth
         if query in self._totals:
-            depth = min(depth, max(self._totals[query] - SEARCH_LIMIT, 0))
-        return self.rng.randint(0, depth) if depth > 0 else 0
+            hi = min(hi, max(self._totals[query] - SEARCH_LIMIT, 0))
+        lo = self.min_offset if hi >= self.min_offset else 0
+        return lo + int((hi - lo) * self.rng.random() ** 0.5)
 
     # --- primitives --------------------------------------------------------------------------
 
@@ -214,15 +240,43 @@ class Sources:
                 return Candidate(self.rng.choice(pool), source, reason.replace("{album}", album.get("name", "?")), genre)
         return None
 
+    def _collaborators(self, seed: ArtistSeed) -> list[tuple[str, str]]:
+        """New-to-you artists credited alongside the seed: our stand-in for related artists.
+
+        Reads the seed's album tracks (usually already cached by deep cuts), and spends one
+        search only if those have no features at all.
+        """
+        if seed.id not in self._collabs:
+            if not any(seed.id in t.artist_ids for ts in self._album_tracks.values() for t in ts):
+                albums = [{"id": k, "name": v} for k, v in seed.albums.items()] or self._artist_albums(seed.id)
+                for album in self.rng.sample(albums, min(2, len(albums))):
+                    self._tracks_of_album(album)
+            tracks = [t for ts in self._album_tracks.values() for t in ts if seed.id in t.artist_ids]
+            if not any(len(t.artists) > 1 for t in tracks) and self.search_available():
+                tracks += [t for t in self._search_tracks(f'artist:"{seed.name}"', 0) if seed.id in t.artist_ids]
+            self._collabs[seed.id] = {aid: name for t in tracks for aid, name in t.artists if aid != seed.id}
+        return [(aid, name) for aid, name in self._collabs[seed.id].items() if self._new_artist(aid, name)]
+
+    def collaborator_pick(self, seed: ArtistSeed, source: str, via: str) -> Candidate | None:
+        pool = self._collaborators(seed)
+        if not pool:
+            return None
+        aid, name = self.rng.choice(pool)
+        hop = ArtistSeed(aid, name, genres=seed.genres)
+        c = self.deep_cut(hop, source, f"{via} → {name}, who's worked with {seed.name} · from {{album}}")
+        if c is None:
+            self._collabs[seed.id].pop(aid, None)  # nothing usable there; don't keep trying them
+        return c
+
     def search_pick(self, query: str, *, source: str, reason: str, genre: str | None, novel: bool) -> Candidate | None:
         # Search is the scarcest endpoint, so use up leftovers from pages already fetched first.
         cached = [t for (q, _), tracks in self._search.items() if q == query for t in tracks if self._fresh(t, novel)]
         if cached:
             return Candidate(self.rng.choice(cached), source, reason, genre)
-        for attempt in range(3):
+        for _ in range(3):
             if not self.search_available():
                 return None
-            tracks = self._search_tracks(query, self._offset(query, attempt))
+            tracks = self._search_tracks(query, self._offset(query))
             pool = [t for t in tracks if self._fresh(t, novel)]
             if pool:
                 return Candidate(self.rng.choice(pool), source, reason, genre)
@@ -268,6 +322,10 @@ class Sources:
         genre = weighted_choice(self.rng, self._live(self.profile.genres), self.selector.genre_full)
         if not genre:  # no genre data at all: Spotify returns empty genres for many artists
             return self._pick_wildcard(source="genre_neighbors")
+        if self.rng.random() < self.collaborator_chance:
+            aid = weighted_choice(self.rng, {k: s.weight for k, s in self.profile.artists.items()})
+            if aid and (c := self.collaborator_pick(self.profile.artists[aid], "genre_neighbors", "new artist")):
+                return c
         via = self.profile.genre_examples.get(genre)
         reason = f"new {genre} artist" + (f" (a thread from {via})" if via else " (from your interests)")
         return self.genre_pick(genre, source="genre_neighbors", reason=reason, novel=self.cfg["diversity"]["novel_artists_only"])
@@ -295,6 +353,9 @@ class Sources:
             aid = weighted_choice(self.rng, {k: s.weight for k, s in self.compass_seeds.items()}, self.selector.artist_full)
             if aid:
                 seed = self.compass_seeds[aid]
+                if self.rng.random() < self.collaborator_chance:
+                    if c := self.collaborator_pick(seed, "compass", "compass"):
+                        return c
                 return self.deep_cut(seed, "compass", f"compass → {seed.name} ({seed.reasons[0] if seed.reasons else 'steering'}) · from {{album}}")
         genre = weighted_choice(self.rng, genres, self.selector.genre_full)
         if not genre:

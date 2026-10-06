@@ -36,6 +36,7 @@ class Profile:
     known_tracks: set[str] = field(default_factory=set)
     known_keys: set[str] = field(default_factory=set)
     genre_examples: dict[str, str] = field(default_factory=dict)  # genre -> a representative artist name
+    served_artists: set[str] = field(default_factory=set)  # artists from earlier mixes: not "new" anymore
 
     def add_known(self, track: Track) -> None:
         self.known_tracks.add(track.id)
@@ -43,6 +44,9 @@ class Profile:
 
     def is_known(self, track: Track) -> bool:
         return track.id in self.known_tracks or track.key in self.known_keys
+
+    def knows_artist(self, artist_id: str) -> bool:
+        return artist_id in self.artists or artist_id in self.served_artists
 
 
 def recency_weight(age_hours: float, boost: float, half_life_hours: float) -> float:

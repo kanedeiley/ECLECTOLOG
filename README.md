@@ -182,6 +182,9 @@ name starts with `ECLECTOLOG_` is picked up automatically, with no workflow edit
 | `ECLECTOLOG_MAX_PER_ARTIST` | `2` | |
 | `ECLECTOLOG_MAX_PER_GENRE` | `3` | |
 | `ECLECTOLOG_SEARCH_DEPTH` | `600` | Deeper = less mainstream (max 1000) |
+| `ECLECTOLOG_MIN_OFFSET` | `100` | Always skip this many top search results |
+| `ECLECTOLOG_COLLABORATOR_CHANCE` | `0.5` | How often neighbors/compass hop to a seed's collaborators |
+| `ECLECTOLOG_SKIP_COMPILATIONS` | `false` | |
 | `ECLECTOLOG_NOVEL_ARTISTS_ONLY` | `false` | |
 | `ECLECTOLOG_EXTRA_GENRES` | `dub, zouk` | Added to interests |
 | `ECLECTOLOG_EXTRA_ARTISTS` | `Khruangbin` | Added to interests |

@@ -35,9 +35,12 @@ diversity:
   max_per_artist: 1
   max_per_genre: 4
   search_depth: 300        # how far down search results to dig (0-1000). Deeper = less mainstream.
-  novel_artists_only: true # neighbors/wildcards only pick artists not in your history
+  min_offset: 50           # always skip this many top (most popular) search results
+  novel_artists_only: true # neighbors/wildcards only pick artists not in your history or earlier mixes
   search_budget: 40        # max search calls per run. Spotify hands out ~24h search bans for heavy use.
   discography_chance: 0.3  # deep cuts: chance to browse the artist's releases instead of albums you've played
+  collaborator_chance: 0.35  # neighbors/compass: chance to hop to a new artist who's featured with a seed
+  skip_compilations: true  # skip "Greatest Hits"-style compilations
 
 wildcard:
   use_builtin_genres: true # ~200 genres across eras and regions (eclectolog/genres.py)

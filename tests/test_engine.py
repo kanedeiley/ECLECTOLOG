@@ -8,6 +8,7 @@ from eclectolog.engine import arrange, run
 from eclectolog.models import Candidate, Track, normalize_title
 from eclectolog.profile import History, build_profile, recency_weight, temper
 from eclectolog.sources import allocate
+from eclectolog.spotify import SpotifyError
 
 from .fake_spotify import FakeSpotify
 
@@ -140,6 +141,25 @@ def test_search_budget_caps_calls_and_deep_cuts_fill_the_rest(tmp_path):
     assert len(result.picks) == 20
     assert fake.search_calls <= 3
     assert Counter(c.source for c in result.picks)["deep_cuts"] >= 10  # 3 searches yield up to ~10 picks via leftover reuse
+
+
+def test_market_from_token_without_scope_falls_back_to_no_market(tmp_path, caplog):
+    class NoPrivateScope(FakeSpotify):  # token lacks user-read-private, like every web-app sign-in so far
+        markets: list = []
+
+        def get(self, path, params=None):
+            if params and "market" in params:
+                self.markets.append(params["market"])
+                if params["market"] == "from_token":
+                    raise SpotifyError("GET /search -> 403: Insufficient client scope", 403)
+            return super().get(path, params)
+
+    fake = NoPrivateScope(NOW)
+    cfg = cfg_for(tmp_path, PLAYLIST_SIZE=20, DRY_RUN="true")
+    result = run(fake, cfg, random.Random(5), NOW)
+    assert fake.markets.count("from_token") == 1  # one 403, then no market for the rest of the run
+    assert any(c.source == "wildcard" for c in result.picks)
+    assert "user-read-private" in caplog.text
 
 
 def test_featured_artist_counts_toward_artist_cap():

@@ -16,6 +16,7 @@ AUTHORIZE_URL = "https://accounts.spotify.com/authorize"
 API_URL = "https://api.spotify.com/v1"
 
 SCOPES = (
+    "user-read-private",  # market=from_token (the listener's country)
     "user-read-recently-played",
     "user-top-read",
     "user-library-read",

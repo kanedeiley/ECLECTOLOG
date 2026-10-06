@@ -143,6 +143,19 @@ class Sources:
             extra["market"] = self.market
         return extra
 
+    def _get(self, path: str, **params) -> dict:
+        """GET with the configured market. market=from_token needs the user-read-private scope, which older
+        sign-ins never granted: Spotify answers 403, so retry without a market for the rest of the run."""
+        try:
+            return self.client.get(path, self._params(**params))
+        except SpotifyError as exc:
+            if exc.status != 403 or self.market != "from_token":
+                raise
+            log.warning("market=from_token needs the user-read-private scope this account hasn't granted; "
+                        "searching without a market (some picks may not be playable in their country)")
+            self.market = None
+            return self.client.get(path, self._params(**params))
+
     def _warn_once(self, what: str, exc: SpotifyError) -> None:
         if what in self._warned:
             log.debug("%s: %s", what, exc)
@@ -159,7 +172,7 @@ class Sources:
         if artist_id not in self._albums:
             albums: list[dict] = []
             try:
-                data = self.client.get(f"/artists/{artist_id}/albums", self._params(include_groups="album,single", limit=ALBUM_LIMIT))
+                data = self._get(f"/artists/{artist_id}/albums", include_groups="album,single", limit=ALBUM_LIMIT)
                 albums = list(data.get("items") or [])
             except SpotifyError as exc:
                 self._warn_once("Artist albums lookup", exc)
@@ -169,7 +182,7 @@ class Sources:
     def _tracks_of_album(self, album: dict) -> list[Track]:
         if album["id"] not in self._album_tracks:
             try:
-                data = self.client.get(f"/albums/{album['id']}/tracks", self._params(limit=50))
+                data = self._get(f"/albums/{album['id']}/tracks", limit=50)
                 self._album_tracks[album["id"]] = [t for t in (parse_track(x, album) for x in data.get("items", [])) if t]
             except SpotifyError as exc:
                 self._warn_once("Album tracks lookup", exc)
@@ -183,7 +196,7 @@ class Sources:
                 return []
             self.searches += 1
             try:
-                data = self.client.get("/search", self._params(q=query, type="track", limit=SEARCH_LIMIT, offset=offset))
+                data = self._get("/search", q=query, type="track", limit=SEARCH_LIMIT, offset=offset)
             except SpotifyError as exc:
                 self._warn_once("Search", exc)
                 self._search[key] = []

@@ -2,10 +2,10 @@ name: Eclectolog
 
 on:
   schedule:
-    # Daily at 01:07 UTC = 9:07 PM US Eastern in summer (EDT), 8:07 PM in winter (EST).
+    # Daily at 01:30 UTC = 9:30 PM US Eastern in summer (EDT), 8:30 PM in winter (EST).
     # GitHub cron is always UTC and can't read variables, so edit this line to change it.
     # Off-the-hour minutes get delayed less when GitHub is busy. Helper: https://crontab.guru
-    - cron: "7 1 * * *"
+    - cron: "30 1 * * *"
   workflow_dispatch:
     inputs:
       dry_run:

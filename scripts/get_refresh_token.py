@@ -36,7 +36,7 @@ AUTHORIZE_URL = "https://accounts.spotify.com/authorize"
 TOKEN_URL = "https://accounts.spotify.com/api/token"
 # Keep in sync with eclectolog/spotify.py
 SCOPES = (
-    "user-read-recently-played user-top-read user-library-read playlist-read-private "
+    "user-read-private user-read-recently-played user-top-read user-library-read playlist-read-private "
     "playlist-read-collaborative playlist-modify-private playlist-modify-public ugc-image-upload"
 )
 

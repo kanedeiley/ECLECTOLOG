@@ -1,5 +1,6 @@
 // Same scopes the cron job requests in scripts/get_refresh_token.py.
 export const SPOTIFY_SCOPES = [
+  "user-read-private", // market=from_token (the listener's country)
   "user-read-recently-played",
   "user-top-read",
   "user-library-read",

@@ -94,7 +94,29 @@ On the repo, go to **Settings → Secrets and variables → Actions → Secrets*
 | `SUPABASE_URL` | `https://<project-ref>.supabase.co` |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase **Settings → API**. An `sb_secret_...` key works too |
 
-### 5. Run it
+### 5. Schedule the daily run
+
+GitHub's own `schedule:` trigger started runs up to 6 hours late, so Supabase triggers the workflow
+instead: `pg_cron` calls GitHub's workflow-dispatch API at 01:30 UTC (from the
+`20261013000000_daily_dispatch.sql` migration).
+
+1. On GitHub, go to **Settings → Developer settings → Fine-grained tokens → Generate new token**.
+   Under **Repository access**, choose **Only select repositories** and pick this repo. Under
+   **Permissions → Repository permissions**, set **Actions** to **Read and write**.
+2. In the Supabase **SQL Editor**, store the repo and token in Vault:
+
+   ```sql
+   select vault.create_secret('<owner>/<repo>', 'eclectolog_github_repo');
+   select vault.create_secret('<github-token>', 'eclectolog_github_token');
+   ```
+
+   When the token expires, replace it with
+   `select vault.update_secret(id, '<new-token>') from vault.secrets where name = 'eclectolog_github_token';`
+3. Check it works with `select private.dispatch_eclectolog();`. That starts a real run. A few
+   seconds later, `select status_code, content from net._http_response order by created desc limit 1;`
+   should show `204`, and the run appears under **Actions**.
+
+### 6. Run it
 
 Go to **Actions → Eclectolog → Run workflow** and tick **Dry run** first. The job summary shows
 everyone's mix without changing anything. To try one person, put their Spotify user ID in **Only
@@ -103,16 +125,19 @@ this user**. Then run it for real.
 Each person's first real run creates three private playlists in their library: **Eclectolog**,
 plus **Eclectolog · Compass** and **Eclectolog · Avoid**.
 
-After that it runs every day at 01:07 UTC (9 PM US Eastern in summer). It builds one person's mix
-at a time with a 30-second pause in between (`api.user_pause_seconds`), because Spotify's rate
-limits apply to the whole app, not to each user. If Spotify bans an endpoint for hours, the rest of
-that day's mixes skip it. If one person's mix fails, the others still run, and the job is marked
-failed so you notice.
+After that it runs every day at 01:30 UTC (9:30 PM US Eastern in summer, 8:30 PM in winter). It
+builds one person's mix at a time with a 30-second pause in between (`api.user_pause_seconds`),
+because Spotify's rate limits apply to the whole app, not to each user. If Spotify bans an endpoint
+for hours, the rest of that day's mixes skip it. If one person's mix fails, the others still run,
+and the job is marked failed so you notice.
 
-To change the schedule, edit the `cron:` line in
-[.github/workflows/eclectolog.yml](.github/workflows/eclectolog.yml). GitHub can't read the
-schedule from a variable. GitHub also pauses scheduled workflows on public repos after 60 days
-without commits. You'll get an email, and one click re-enables it.
+To change the schedule, run this in the Supabase **SQL Editor** (the time is UTC):
+
+```sql
+select cron.schedule('eclectolog-daily', '30 1 * * *', 'select private.dispatch_eclectolog()');
+```
+
+`select * from cron.job_run_details order by start_time desc limit 5;` shows recent triggers.
 
 ---
 

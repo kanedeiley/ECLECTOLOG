@@ -93,12 +93,14 @@ def fill(sources: Sources, selector: Selector, allocation: dict[str, int], size:
             attempts += 1
             got += take(source)
 
+    # Shortfalls go to the familiar sources in turn; a wildcard only fills a slot none of them can.
     misses, i = 0, 0
     while len(selector.picks) < size and misses < size * ATTEMPTS_PER_SLOT:
-        order = [s for s in SOURCES if mix.get(s, 0) > 0 and not sources.exhausted(s)] or ["wildcard"]
-        source = order[i % len(order)]
+        familiar = [s for s in SOURCES if s != "wildcard" and mix.get(s, 0) > 0 and not sources.exhausted(s)]
+        order = familiar[i % len(familiar):] + familiar[: i % len(familiar)] if familiar else []
         i += 1
-        if not take(source):
+        wildcard_ok = mix.get("wildcard", 0) > 0 or not familiar
+        if not any(take(s) for s in order) and not (wildcard_ok and take("wildcard")):
             misses += 1
 
 

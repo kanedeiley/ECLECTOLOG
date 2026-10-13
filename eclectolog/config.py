@@ -56,6 +56,8 @@ DEFAULTS: dict[str, Any] = {
         "use_builtin_genres": True,
         "genres": [],
         "era_chance": 0.35,
+        "adjacency": 0.75,  # 0 = any genre equally likely; 1 = only families near your taste
+        "search_depth": 50,  # wildcards dig shallower than diversity.search_depth: the genre's best-known tracks first
         "eras": ["1950-1959", "1960-1969", "1970-1979", "1980-1989", "1990-1999", "2000-2009", "2010-2019", "2020-2029"],
         "keyword_chance": 0.25,
     },
@@ -150,6 +152,8 @@ ENV_OPTIONS: dict[str, tuple[str, Callable[[Any], Any], bool]] = {
     "MAX_API_READS": ("api.max_reads", int, False),
     "WILDCARD_GENRES": ("wildcard.genres", _list, True),
     "ERA_CHANCE": ("wildcard.era_chance", float, False),
+    "WILDCARD_SEARCH_DEPTH": ("wildcard.search_depth", int, False),
+    "WILDCARD_ADJACENCY": ("wildcard.adjacency", float, False),
     "EXTRA_GENRES": ("interests.genres", _list, True),
     "EXTRA_ARTISTS": ("interests.artists", _list, True),
     "ERAS": ("interests.eras", _list, False),
@@ -325,6 +329,10 @@ def validate(cfg: dict) -> None:
         raise ConfigError("diversity.search_budget must be >= 0")
     if not 0 <= int(d["search_depth"]) <= 1000:
         raise ConfigError("diversity.search_depth must be between 0 and 1000")
+    if not 0 <= int(cfg["wildcard"]["search_depth"]) <= 1000:
+        raise ConfigError("wildcard.search_depth must be between 0 and 1000")
+    if not 0 <= float(cfg["wildcard"]["adjacency"]) <= 1:
+        raise ConfigError("wildcard.adjacency must be between 0 and 1")
     for era in cfg["interests"]["eras"] + list(cfg["wildcard"]["eras"]):
         parse_era(era)
 

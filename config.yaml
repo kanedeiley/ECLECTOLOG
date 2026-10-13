@@ -43,6 +43,8 @@ wildcard:
   use_builtin_genres: true # ~200 genres across eras and regions (eclectolog/genres.py)
   genres: []               # extra wildcard genres
   era_chance: 0.35         # chance a wildcard pick is pinned to a random era
+  adjacency: 0.75          # 0 = any genre equally likely; 1 = only genre families near what you play
+  search_depth: 50         # wildcards stay near the top of results (a genre's best-known tracks), not the long tail
   keyword_chance: 0.25     # chance to use a keyword from interests.yaml instead of a genre
   eras: [1950s, 1960s, 1970s, 1980s, 1990s, 2000s, 2010s, 2020s]
 

@@ -16,7 +16,7 @@ from collections import Counter
 from typing import Callable
 
 from .config import SOURCES, parse_era
-from .genres import BUILTIN_GENRES
+from .genres import FAMILY_HINTS, GENRE_FAMILIES
 from .models import ArtistSeed, Candidate, Track, parse_track
 from .profile import Profile, matches_any
 from .spotify import Spotify, SpotifyError
@@ -93,6 +93,8 @@ class Sources:
         self.avoid_genres = cfg["interests"]["avoid"]["genres"]
         self.market = cfg.get("market") or None
         self.depth = min(int(cfg["diversity"]["search_depth"]), MAX_OFFSET)
+        # Wildcards are genres you don't know, so stay near the top of the results instead of the long tail.
+        self.wild_depth = min(int(cfg["wildcard"]["search_depth"]), MAX_OFFSET)
 
         self._albums: dict[str, list[dict]] = {}
         self._album_tracks: dict[str, list[Track]] = {}
@@ -105,7 +107,9 @@ class Sources:
         self._warned: set[str] = set()
 
         self.compass_genres = self._compass_genres()
-        self.wild_pool = self._wild_pool()
+        self.wild_families = self._wild_families()
+        self.wild_pool = sorted({g for genres in self.wild_families.values() for g in genres})
+        self.family_weights = self._family_weights()
         interest_eras = cfg["interests"]["eras"]
         self.eras = [parse_era(e) for e in (interest_eras or cfg["wildcard"]["eras"])]
         self.era_chance = 0.6 if interest_eras else float(cfg["wildcard"]["era_chance"])
@@ -121,13 +125,34 @@ class Sources:
             weights[g] += w
         return {g: w for g, w in weights.items() if not matches_any(g, self.avoid_genres)}
 
-    def _wild_pool(self) -> list[str]:
+    def _wild_families(self) -> dict[str, list[str]]:
         wc = self.cfg["wildcard"]
-        pool = list(BUILTIN_GENRES) if wc["use_builtin_genres"] else []
-        pool += [g.lower() for g in wc["genres"]]
+        families = dict(GENRE_FAMILIES) if wc["use_builtin_genres"] else {}
+        if wc["genres"]:
+            families["yours"] = [g.lower() for g in wc["genres"]]
         # "Wild" means away from where you already are: drop your ten heaviest genres.
         familiar = {g for g, _ in sorted(self.profile.genres.items(), key=lambda kv: -kv[1])[:10]}
-        return sorted({g for g in pool if g not in familiar and not matches_any(g, self.avoid_genres)})
+        keep = lambda g: g not in familiar and not matches_any(g, self.avoid_genres)
+        return {f: sorted({g for g in genres if keep(g)}) for f, genres in families.items() if any(map(keep, genres))}
+
+    def _family_weights(self) -> dict[str, float]:
+        """Lean wildcards toward families near your taste: a stretch from where you are, not a random region.
+
+        Each of your genres (history, Compass, interests) votes for the families it belongs to; `adjacency`
+        blends those votes with an even split, so distant families still turn up now and then."""
+        votes: Counter[str] = Counter()
+        for genre, weight in list(self.profile.genres.items()) + list(self.compass_genres.items()):
+            hits = [f for f, gs in GENRE_FAMILIES.items() if genre in gs or any(h in genre for h in FAMILY_HINTS[f])]
+            for f in hits:
+                votes[f] += weight / len(hits)
+        builtin = [f for f in self.wild_families if f in GENRE_FAMILIES]
+        total = sum(votes[f] for f in builtin)
+        adjacency = float(self.cfg["wildcard"]["adjacency"]) if total else 0.0
+        weights = {f: (1 - adjacency) / len(builtin) + adjacency * votes[f] / (total or 1) for f in builtin}
+        if "yours" in self.wild_families:  # genres you listed yourself are always fair game
+            weights["yours"] = max(weights.values(), default=1.0)
+        log.debug("Wildcard family weights: %s", {f: round(w, 3) for f, w in weights.items()})
+        return weights
 
     # --- helpers -----------------------------------------------------------------------------
 
@@ -206,9 +231,9 @@ class Sources:
             self._search[key] = [t for t in (parse_track(x) for x in block.get("items") or []) if t]
         return self._search[key]
 
-    def _offset(self, query: str, attempt: int) -> int:
+    def _offset(self, query: str, attempt: int, depth: int) -> int:
         """Random dig into results; deeper offsets skip the mainstream head of the list."""
-        depth = self.depth if attempt == 0 else min(self.depth, 30)
+        depth = depth if attempt == 0 else min(depth, 30)
         if query in self._totals:
             depth = min(depth, max(self._totals[query] - SEARCH_LIMIT, 0))
         return self.rng.randint(0, depth) if depth > 0 else 0
@@ -227,7 +252,9 @@ class Sources:
                 return Candidate(self.rng.choice(pool), source, reason.replace("{album}", album.get("name", "?")), genre)
         return None
 
-    def search_pick(self, query: str, *, source: str, reason: str, genre: str | None, novel: bool) -> Candidate | None:
+    def search_pick(
+        self, query: str, *, source: str, reason: str, genre: str | None, novel: bool, depth: int | None = None
+    ) -> Candidate | None:
         # Search is the scarcest endpoint, so use up leftovers from pages already fetched first.
         cached = [t for (q, _), tracks in self._search.items() if q == query for t in tracks if self._fresh(t, novel)]
         if cached:
@@ -235,7 +262,7 @@ class Sources:
         for attempt in range(3):
             if not self.search_available():
                 return None
-            tracks = self._search_tracks(query, self._offset(query, attempt))
+            tracks = self._search_tracks(query, self._offset(query, attempt, self.depth if depth is None else depth))
             pool = [t for t in tracks if self._fresh(t, novel)]
             if pool:
                 return Candidate(self.rng.choice(pool), source, reason, genre)
@@ -243,9 +270,11 @@ class Sources:
                 break
         return None
 
-    def genre_pick(self, genre: str, *, source: str, reason: str, novel: bool, era: str | None = None) -> Candidate | None:
+    def genre_pick(
+        self, genre: str, *, source: str, reason: str, novel: bool, era: str | None = None, depth: int | None = None
+    ) -> Candidate | None:
         query = f'genre:"{genre}"' + (f" year:{era}" if era else "")
-        c = self.search_pick(query, source=source, reason=reason, genre=genre, novel=novel)
+        c = self.search_pick(query, source=source, reason=reason, genre=genre, novel=novel, depth=depth)
         if c is None and not era and self._totals.get(query) == 0:
             self.dead_genres.add(genre)
         return c
@@ -260,7 +289,7 @@ class Sources:
         if not self.search_available():
             return True
         if source == "genre_neighbors":
-            return not self._live(self.profile.genres) and not self.wild_pool
+            return not self._live(self.profile.genres) and not self._live(self.compass_genres)
         return not self.wild_pool and not self.cfg["interests"]["keywords"]
 
     def _live(self, genres: dict[str, float]) -> dict[str, float]:
@@ -279,26 +308,36 @@ class Sources:
 
     def _pick_genre_neighbors(self) -> Candidate | None:
         genre = weighted_choice(self.rng, self._live(self.profile.genres), self.selector.genre_full)
-        if not genre:  # no genre data at all: Spotify returns empty genres for many artists
-            return self._pick_wildcard(source="genre_neighbors")
-        via = self.profile.genre_examples.get(genre)
-        reason = f"new {genre} artist" + (f" (a thread from {via})" if via else " (from your interests)")
+        if not genre:
+            # Spotify returns empty genres for many artists, and the per-genre cap fills up fast. Lean on genres
+            # you've steered toward rather than wildcards, so "neighbors" never lands somewhere you didn't pick.
+            genre = weighted_choice(self.rng, self._live(self.compass_genres), self.selector.genre_full)
+            if not genre:
+                return None
+            reason = f"new {genre} artist (from your compass)"
+        else:
+            via = self.profile.genre_examples.get(genre)
+            reason = f"new {genre} artist" + (f" (a thread from {via})" if via else " (from your interests)")
         return self.genre_pick(genre, source="genre_neighbors", reason=reason, novel=self.cfg["diversity"]["novel_artists_only"])
 
-    def _pick_wildcard(self, source: str = "wildcard") -> Candidate | None:
+    def _pick_wildcard(self) -> Candidate | None:
         keywords = self.cfg["interests"]["keywords"]
         if keywords and (not self.wild_pool or self.rng.random() < self.cfg["wildcard"]["keyword_chance"]):
             kw = self.rng.choice(keywords)
-            return self.search_pick(kw, source=source, reason=f"wildcard keyword “{kw}”", genre=None, novel=True)
-        pool = [g for g in self.wild_pool if g not in self.dead_genres and not self.selector.genre_full(g)]
-        if not pool:
+            return self.search_pick(kw, source="wildcard", reason=f"wildcard keyword “{kw}”", genre=None, novel=True, depth=self.wild_depth)
+        open_genres = {
+            f: [g for g in genres if g not in self.dead_genres and not self.selector.genre_full(g)]
+            for f, genres in self.wild_families.items()
+        }
+        family = weighted_choice(self.rng, self.family_weights, lambda f: not open_genres[f])
+        if not family:
             return None
-        genre = self.rng.choice(pool)
+        genre = self.rng.choice(open_genres[family])
         era = self.rng.choice(self.eras) if self.eras and self.rng.random() < self.era_chance else None
         label = f"wildcard: {genre}" + (f", {era}" if era else "")
-        c = self.genre_pick(genre, source=source, reason=label, novel=True, era=era)
+        c = self.genre_pick(genre, source="wildcard", reason=label, novel=True, era=era, depth=self.wild_depth)
         if c is None and era:
-            c = self.genre_pick(genre, source=source, reason=f"wildcard: {genre}", novel=True)
+            c = self.genre_pick(genre, source="wildcard", reason=f"wildcard: {genre}", novel=True, depth=self.wild_depth)
         return c
 
     def _pick_compass(self) -> Candidate | None:

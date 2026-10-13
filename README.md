@@ -191,6 +191,8 @@ name starts with `ECLECTOLOG_` is picked up automatically, with no workflow edit
 | `ECLECTOLOG_AVOID_ARTISTS` | `Some Band` | |
 | `ECLECTOLOG_WILDCARD_GENRES` | `gamelan, zydeco` | Added to the wildcard pool |
 | `ECLECTOLOG_ERA_CHANCE` | `0.5` | |
+| `ECLECTOLOG_WILDCARD_ADJACENCY` | `0.5` | 0–1. How strongly wildcards lean toward genre families near your taste (0 = any genre equally likely) |
+| `ECLECTOLOG_WILDCARD_SEARCH_DEPTH` | `100` | How far down wildcard results to dig; kept shallow so a new genre starts with its best-known tracks |
 | `ECLECTOLOG_REFERENCE_PLAYLISTS` | `false` | Turn off the Compass and Avoid playlists entirely |
 | `ECLECTOLOG_CREATE_REFERENCE_PLAYLISTS` | `false` | Use them only if you create them yourself |
 | `ECLECTOLOG_COMPASS_PLAYLIST` / `_AVOID_PLAYLIST` | `My Compass` | Rename them |

@@ -199,3 +199,42 @@ def test_covers_are_set_once_and_failures_only_warn(tmp_path, caplog):
 
     fake.cover_error = RuntimeError("boom")
     assert apply_covers(fake, {"output": {"id": "pl1", "name": "Eclectolog", "images": []}})  # warned, not raised
+
+
+def test_neighbors_never_borrow_wildcard_genres(tmp_path):
+    class NoGenres(FakeSpotify):  # Spotify returns empty genres for many artists
+        def get(self, path, params=None):
+            data = super().get(path, params)
+            if path.startswith("/artists/") and "genres" in data:
+                data = data | {"genres": []}
+            return data
+
+    cfg = cfg_for(tmp_path, PLAYLIST_SIZE=20, DRY_RUN="true", EXTRA_GENRES="dub")
+    result = run(NoGenres(NOW), cfg, random.Random(3), NOW)
+    neighbors = [c for c in result.picks if c.source == "genre_neighbors"]
+    assert neighbors and not any(c.reason.startswith("wildcard") for c in neighbors)
+    assert any(c.genre == "dub" for c in neighbors)  # interests/compass fill the gap instead
+
+
+def test_wildcards_only_take_slots_familiar_sources_cant_fill(tmp_path):
+    cfg = cfg_for(tmp_path, PLAYLIST_SIZE=12, DRY_RUN="true", MIX="deep_cuts=0.5,genre_neighbors=0.3,wildcard=0.2,compass=0")
+    result = run(FakeSpotify(NOW), cfg, random.Random(4), NOW)
+    assert len(result.picks) == 12
+    assert Counter(c.source for c in result.picks)["wildcard"] <= result.allocation["wildcard"]
+
+
+def test_wildcards_lean_toward_families_near_your_taste(tmp_path):
+    from eclectolog.genres import GENRE_FAMILIES
+    from eclectolog.profile import Profile
+    from eclectolog.sources import Selector, Sources
+
+    cfg = cfg_for(tmp_path)
+    profile = Profile(artists={}, genres={"indie rock": 3.0, "chilean shoegaze": 2.0, "ambient": 1.0})
+    sources = Sources(FakeSpotify(NOW), cfg, profile, Selector(1, 4), random.Random(0))
+    w = sources.family_weights
+    assert w["Rock & indie"] > w["Electronic"] > w["Asia & Middle East"] > 0  # far families are rare, not banned
+    assert "indie rock" not in sources.wild_pool  # your own genres aren't wildcards
+
+    cfg["wildcard"]["adjacency"] = 0
+    flat = Sources(FakeSpotify(NOW), cfg, profile, Selector(1, 4), random.Random(0)).family_weights
+    assert len(set(flat.values())) == 1 and len(flat) == len(GENRE_FAMILIES)

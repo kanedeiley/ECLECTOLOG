@@ -4,7 +4,7 @@ Built only on endpoints still open to Development Mode apps after Spotify's Nov 
 changes (no /recommendations, related-artists, artist top-tracks or popularity):
 
   deep_cuts        a random album track from an artist you already play, which you haven't heard
-  genre_neighbors  a track from one of your (flattened) genres, by an artist new to you
+  genre_neighbors  a new artist Deezer relates to one you play (genre search when Deezer is off or down)
   wildcard         a genre you don't listen to, optionally pinned to an era or keyword
   compass          artists/genres from your Compass playlist, interests.yaml and `more:` directives
 """
@@ -16,6 +16,7 @@ from collections import Counter
 from typing import Callable
 
 from .config import SOURCES, parse_era
+from .deezer import Deezer, DeezerArtist, DeezerError, DeezerTrack, name_key
 from .genres import FAMILY_HINTS, GENRE_FAMILIES
 from .models import ArtistSeed, Candidate, Track, parse_track
 from .profile import Profile, matches_any
@@ -81,6 +82,8 @@ class Sources:
         *,
         compass_seeds: dict[str, ArtistSeed] | None = None,
         avoid_artist_ids: set[str] = frozenset(),
+        deezer: Deezer | None = None,
+        recent_artists: list[tuple[str, str]] = (),
     ):
         self.client = client
         self.cfg = cfg
@@ -105,6 +108,15 @@ class Sources:
         self.discography_chance = float(cfg["diversity"]["discography_chance"])
         self.searches = 0
         self._warned: set[str] = set()
+
+        self.deezer = deezer if cfg["deezer"]["enabled"] else None
+        self.dz = cfg["deezer"]
+        # Neighbors skip anyone you play, have steered toward or avoided, or were served within the cooldown.
+        self.cooled_ids = {aid for aid, _ in recent_artists}
+        self.skip_names = {name_key(n) for _, n in recent_artists}
+        self.skip_names |= {name_key(s.name) for s in [*self.profile.artists.values(), *self.compass_seeds.values()]}
+        self.skip_names |= {name_key(n) for n in self.avoid_artist_names}
+        self._dead_seeds: set[str] = set()
 
         self.compass_genres = self._compass_genres()
         self.wild_families = self._wild_families()
@@ -289,7 +301,7 @@ class Sources:
         if not self.search_available():
             return True
         if source == "genre_neighbors":
-            return not self._live(self.profile.genres) and not self._live(self.compass_genres)
+            return not self._similar_seeds() and not self._live(self.profile.genres) and not self._live(self.compass_genres)
         return not self.wild_pool and not self.cfg["interests"]["keywords"]
 
     def _live(self, genres: dict[str, float]) -> dict[str, float]:
@@ -307,6 +319,8 @@ class Sources:
         return self.deep_cut(seed, "deep_cuts", f"deeper into {seed.name} ({why}) · from {{album}}")
 
     def _pick_genre_neighbors(self) -> Candidate | None:
+        if self._similar_seeds():
+            return self._pick_similar()
         genre = weighted_choice(self.rng, self._live(self.profile.genres), self.selector.genre_full)
         if not genre:
             # Spotify returns empty genres for many artists, and the per-genre cap fills up fast. Lean on genres
@@ -319,6 +333,69 @@ class Sources:
             via = self.profile.genre_examples.get(genre)
             reason = f"new {genre} artist" + (f" (a thread from {via})" if via else " (from your interests)")
         return self.genre_pick(genre, source="genre_neighbors", reason=reason, novel=self.cfg["diversity"]["novel_artists_only"])
+
+    # --- Deezer neighbors --------------------------------------------------------------------
+
+    def _similar_seeds(self) -> dict[str, ArtistSeed]:
+        if not self.deezer:
+            return {}
+        pool = self.profile.artists or self.compass_seeds
+        return {k: s for k, s in pool.items() if k not in self._dead_seeds}
+
+    def _pick_similar(self) -> Candidate | None:
+        """A new artist Deezer pairs with one you play (sometimes two steps out), via one of their best-known tracks."""
+        try:
+            for _ in range(3):
+                seeds = self._similar_seeds()
+                aid = weighted_choice(self.rng, {k: s.weight for k, s in seeds.items()})
+                if not aid:
+                    return None
+                seed = seeds[aid]
+                home = self.deezer.find_artist(seed.name)
+                near = self._neighbors(home) if home else []
+                if not near:
+                    self._dead_seeds.add(aid)
+                    continue
+                pick, via = self.rng.choice(near), None
+                if self.rng.random() < float(self.dz["second_hop_chance"]):
+                    far = [a for a in self._neighbors(pick) if a.id != home.id]
+                    if far:
+                        pick, via = self.rng.choice(far), pick
+                self.skip_names.add(name_key(pick.name))  # one try per artist per run, hit or miss
+                if c := self._neighbor_track(pick, seed, via):
+                    return c
+                if not self.search_available():
+                    return None
+        except DeezerError as exc:
+            log.warning("Deezer failed, so neighbors use genre search for the rest of this run: %s", exc)
+            self.deezer = None
+        return None
+
+    def _neighbors(self, artist: DeezerArtist) -> list[DeezerArtist]:
+        lo, hi = int(self.dz["min_fans"]), int(self.dz["max_fans"])
+        return [a for a in self.deezer.related(artist.id)
+                if a.fans >= lo and (not hi or a.fans <= hi) and name_key(a.name) not in self.skip_names]
+
+    def _neighbor_track(self, artist: DeezerArtist, seed: ArtistSeed, via: DeezerArtist | None) -> Candidate | None:
+        want = name_key(artist.name)
+        tracks = [t for t in self.deezer.top_tracks(artist.id, int(self.dz["top_tracks"])) if name_key(t.artist) == want]
+        for dt in self.rng.sample(tracks, min(2, len(tracks))):
+            t = self._on_spotify(dt)
+            if t and self._fresh(t, novel=True) and not self.cooled_ids.intersection(t.artist_ids):
+                reason = f"new artist near {seed.name}" + (f" (via {via.name})" if via else "")
+                return Candidate(t, "genre_neighbors", reason, None)
+        return None
+
+    def _on_spotify(self, dt: DeezerTrack) -> Track | None:
+        """Find a Deezer track on Spotify: by ISRC (exact recording), else by title and artist."""
+        isrc = self.deezer.isrc(dt.id)
+        clean = lambda s: s.replace('"', "")
+        queries = ([f"isrc:{isrc}"] if isrc else []) + [f'track:"{clean(dt.title)}" artist:"{clean(dt.artist)}"']
+        want = name_key(dt.artist)
+        for q in queries:
+            if match := next((t for t in self._search_tracks(q, 0) if want in map(name_key, t.artist_names)), None):
+                return match
+        return None
 
     def _pick_wildcard(self) -> Candidate | None:
         keywords = self.cfg["interests"]["keywords"]

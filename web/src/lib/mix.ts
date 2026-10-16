@@ -20,7 +20,7 @@ export const SOURCES: { key: MixKey; icon: LucideIcon; name: string; body: strin
     key: "genre_neighbors",
     icon: UsersIcon,
     name: "Neighbors",
-    body: "New artists in the genres you listen to, dug out at random search depth.",
+    body: "New artists that listeners pair with the ones you play, sometimes two steps out.",
   },
   {
     key: "wildcard",

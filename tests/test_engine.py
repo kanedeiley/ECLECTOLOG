@@ -10,13 +10,14 @@ from eclectolog.profile import History, build_profile, recency_weight, temper
 from eclectolog.sources import allocate
 from eclectolog.spotify import SpotifyError
 
-from .fake_spotify import FakeSpotify
+from .fake_spotify import FakeDeezer, FakeSpotify
 
 NOW = datetime(2026, 10, 4, 12, tzinfo=timezone.utc)
 
 
 def cfg_for(tmp_path, **env):
     env.setdefault("STATE_FILE", str(tmp_path / "state" / "history.jsonl"))
+    env.setdefault("DEEZER", "false")  # tests that want Deezer pass a FakeDeezer; never hit the network
     return load_config(environ={f"ECLECTOLOG_{k}": str(v) for k, v in env.items()}, base_dir=tmp_path)
 
 
@@ -238,3 +239,36 @@ def test_wildcards_lean_toward_families_near_your_taste(tmp_path):
     cfg["wildcard"]["adjacency"] = 0
     flat = Sources(FakeSpotify(NOW), cfg, profile, Selector(1, 4), random.Random(0)).family_weights
     assert len(set(flat.values())) == 1 and len(flat) == len(GENRE_FAMILIES)
+
+
+def test_neighbors_come_from_deezer_related_artists(tmp_path):
+    fake = FakeSpotify(NOW)
+    cfg = cfg_for(tmp_path, PLAYLIST_SIZE=20, DRY_RUN="true", DEEZER="true", DEEZER_SECOND_HOP_CHANCE=0)
+    result = run(fake, cfg, random.Random(3), NOW, deezer=FakeDeezer(fake))
+    neighbors = [c for c in result.picks if c.source == "genre_neighbors"]
+    assert len(neighbors) >= result.allocation["genre_neighbors"]  # overflow slots can land here too
+    names = [c.track.artist_names[0] for c in neighbors]
+    assert all(n.startswith("Near ") for n in names)  # Old Love is related too, but you already play them
+    assert not any(n.endswith(" 0") or n.endswith(" 1") for n in names)  # 0 and 500 fans are under min_fans
+    assert all(c.reason.startswith("new artist near ") for c in neighbors)
+    assert result.deezer_calls > 0
+
+
+def test_neighbor_artists_cool_down_between_runs(tmp_path):
+    fake = FakeSpotify(NOW)
+    cfg = lambda: cfg_for(tmp_path, PLAYLIST_SIZE=20, DEEZER="true", MIX="genre_neighbors=1,deep_cuts=0,wildcard=0,compass=0")
+    first = run(fake, cfg(), random.Random(1), NOW, deezer=FakeDeezer(fake))
+    second = run(fake, cfg(), random.Random(1), NOW.replace(day=5), deezer=FakeDeezer(fake))
+    artists = lambda r: {c.track.artist_names[0] for c in r.picks if c.source == "genre_neighbors"}
+    assert artists(first) and artists(second)
+    assert not artists(first) & artists(second)
+
+
+def test_deezer_outage_falls_back_to_genre_search(tmp_path, caplog):
+    fake = FakeSpotify(NOW)
+    cfg = cfg_for(tmp_path, PLAYLIST_SIZE=20, DRY_RUN="true", DEEZER="true")
+    result = run(fake, cfg, random.Random(3), NOW, deezer=FakeDeezer(fake, fail=True))
+    neighbors = [c for c in result.picks if c.source == "genre_neighbors"]
+    assert neighbors and all(c.reason.startswith("new ") and "artist" in c.reason for c in neighbors)
+    assert any(c.genre for c in neighbors)  # genre-search picks carry their genre
+    assert caplog.text.count("Deezer failed") == 1

@@ -20,7 +20,7 @@ Each run builds a taste profile, then fills the playlist from four sources:
 | Source | What it picks | Default share |
 |---|---|---|
 | **Deep cuts** | Unheard tracks from albums you've played, or sometimes from the artist's latest releases | 25% |
-| **Neighbors** | *New* artists in genres you listen to, dug out of search results at random depth | 35% |
+| **Neighbors** | *New* artists that [Deezer](https://developers.deezer.com/api) relates to ones you play (sometimes two steps out), skipping household names and anyone served in the last 14 days. Falls back to genre search if Deezer is down | 35% |
 | **Wildcard** | Genres you *don't* listen to, from a built-in list of about 200 global and historical genres, sometimes pinned to an era | 20% |
 | **Compass** | Artists and genres from your Compass playlist, `interests.yaml` and `more:` directives | 20% |
 
@@ -193,6 +193,10 @@ name starts with `ECLECTOLOG_` is picked up automatically, with no workflow edit
 | `ECLECTOLOG_ERA_CHANCE` | `0.5` | |
 | `ECLECTOLOG_WILDCARD_ADJACENCY` | `0.5` | 0–1. How strongly wildcards lean toward genre families near your taste (0 = any genre equally likely) |
 | `ECLECTOLOG_WILDCARD_SEARCH_DEPTH` | `100` | How far down wildcard results to dig; kept shallow so a new genre starts with its best-known tracks |
+| `ECLECTOLOG_DEEZER` | `false` | Turn off Deezer neighbors and use genre search instead |
+| `ECLECTOLOG_DEEZER_MIN_FANS` / `_MAX_FANS` | `5000` | Fan-count window for neighbor artists (defaults 1000 and 750000; 0 = no ceiling) |
+| `ECLECTOLOG_DEEZER_SECOND_HOP_CHANCE` | `0.5` | 0–1. Chance a neighbor is two steps out from your artist instead of one |
+| `ECLECTOLOG_NEIGHBOR_COOLDOWN_DAYS` | `30` | Days before the same neighbor artist can come back (default 14) |
 | `ECLECTOLOG_REFERENCE_PLAYLISTS` | `false` | Turn off the Compass and Avoid playlists entirely |
 | `ECLECTOLOG_CREATE_REFERENCE_PLAYLISTS` | `false` | Use them only if you create them yourself |
 | `ECLECTOLOG_COMPASS_PLAYLIST` / `_AVOID_PLAYLIST` | `My Compass` | Rename them |

@@ -39,6 +39,17 @@ diversity:
   search_budget: 40        # max search calls per run. Spotify hands out ~24h search bans for heavy use.
   discography_chance: 0.3  # deep cuts: chance to browse the artist's releases instead of albums you've played
 
+# Neighbors come from Deezer's related-artists graph (free, no key): artists Deezer's listeners pair with
+# ones you play, found on Spotify by ISRC. If Deezer is off or down, neighbors fall back to genre search.
+deezer:
+  enabled: true
+  min_fans: 1000           # skip neighbors with fewer Deezer fans (filters karaoke, covers and filler)
+  max_fans: 750000         # skip household names you've surely heard (0 = no ceiling)
+  second_hop_chance: 0.3   # chance to step one artist further out (a neighbor's neighbor)
+  top_tracks: 10           # pick from each neighbor's N most-played tracks
+  cooldown_days: 14        # don't serve the same neighbor artist again within this many days
+  max_calls: 400           # Deezer requests per run (Deezer allows ~50 per 5 seconds)
+
 wildcard:
   use_builtin_genres: true # ~200 genres across eras and regions (eclectolog/genres.py)
   genres: []               # extra wildcard genres

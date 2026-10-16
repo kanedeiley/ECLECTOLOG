@@ -18,6 +18,10 @@ def _shares(weights: dict[str, float], n: int) -> list[tuple[str, float]]:
     return [(k, 100 * w / total) for k, w in sorted(weights.items(), key=lambda kv: -kv[1])[:n]]
 
 
+def _calls(result: RunResult) -> str:
+    return f"{result.api_calls} API calls" + (f" (+{result.deezer_calls} Deezer)" if result.deezer_calls else "")
+
+
 def _md(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ")
 
@@ -33,7 +37,7 @@ def console(result: RunResult) -> str:
         lines.append(f"     {c.reason}")
     if result.directive_notes:
         lines += ["", "Compass directives: " + "; ".join(result.directive_notes)]
-    lines += ["", f"{result.api_calls} API calls"]
+    lines += ["", _calls(result)]
     return "\n".join(lines)
 
 
@@ -45,7 +49,7 @@ def markdown(result: RunResult) -> str:
         head += "**Dry run**: nothing was written to Spotify.\n\n"
     elif result.playlist_url:
         head += f"**[Open in Spotify]({result.playlist_url})**\n\n"
-    head += f"{len(result.picks)} of {result.target_size} tracks · {mix} · {result.api_calls} API calls\n\n"
+    head += f"{len(result.picks)} of {result.target_size} tracks · {mix} · {_calls(result)}\n\n"
 
     out = [head]
     if result.created_playlists:

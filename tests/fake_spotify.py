@@ -30,6 +30,7 @@ class FakeSpotify:
         self.playlists = playlists or {}  # id -> {"name","description","tracks":[track objs]}
         self.saved_ids = set(saved_ids)
         self._next_id = 0
+        self.catalog: dict[str, dict] = {}  # exact-match queries (isrc:/track:) -> track object; see FakeDeezer
 
     # --- routing -----------------------------------------------------------------------
     def get(self, path, params=None):
@@ -122,6 +123,9 @@ class FakeSpotify:
         q, offset = params["q"], int(params.get("offset", 0))
         if params["type"] == "artist":
             return {"artists": {"items": [{"id": "int1", "name": params["q"], "genres": ["krautrock"]}]}}
+        if q.startswith("isrc:") or q.startswith("track:"):
+            hit = self.catalog.get(q)
+            return {"tracks": {"total": int(bool(hit)), "items": [hit] if hit else []}}
         if "nonexistent" in q:
             return {"tracks": {"total": 0, "items": []}}
         total = 200
@@ -132,3 +136,52 @@ class FakeSpotify:
             h = hashlib.md5(f"{q}|{offset + i}".encode()).hexdigest()[:8]
             items.append(track(f"s{h}", f"Song {h}", [(f"new{h}", f"Artist {h}")]))
         return {"tracks": {"total": total, "items": items}}
+
+
+class FakeDeezer:
+    """Each artist relates to six "Near <name> <i>" artists with i*500 fans; Old Love is also near Heavy Rotation.
+
+    Registers every track it hands out in the FakeSpotify catalog so ISRC searches resolve.
+    """
+
+    def __init__(self, spotify: FakeSpotify, fail: bool = False):
+        self.spotify = spotify
+        self.fail = fail
+        self.calls = 0
+        self.ids: dict[int, str] = {}
+
+    def _artist(self, name):
+        from eclectolog.deezer import DeezerArtist
+        aid = int(hashlib.md5(name.encode()).hexdigest()[:8], 16)
+        self.ids[aid] = name
+        fans = int(name.rsplit(" ", 1)[-1]) * 500 if name.startswith("Near") else 50_000
+        return DeezerArtist(aid, name, fans)
+
+    def _call(self):
+        from eclectolog.deezer import DeezerError
+        self.calls += 1
+        if self.fail:
+            raise DeezerError("GET /search/artist: connection refused")
+
+    def find_artist(self, name):
+        self._call()
+        return self._artist(name)
+
+    def related(self, artist_id):
+        self._call()
+        name = self.ids[artist_id]
+        out = [self._artist(f"Near {name} {i}") for i in range(6)]
+        return out + ([self._artist("Old Love")] if name == "Heavy Rotation" else [])
+
+    def top_tracks(self, artist_id, limit=10):
+        from eclectolog.deezer import DeezerTrack
+        self._call()
+        name = self.ids[artist_id]
+        return [DeezerTrack(artist_id * 10 + k, f"{name} hit {k}", name) for k in range(min(limit, 3))]
+
+    def isrc(self, track_id):
+        self._call()
+        artist = self.ids[track_id // 10]
+        slug = hashlib.md5(artist.encode()).hexdigest()[:8]
+        self.spotify.catalog[f"isrc:DZ{track_id}"] = track(f"dz{track_id}", f"{artist} hit {track_id % 10}", [(f"sp{slug}", artist)])
+        return f"DZ{track_id}"

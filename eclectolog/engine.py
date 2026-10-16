@@ -3,10 +3,11 @@ from __future__ import annotations
 import logging
 import random
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .config import SOURCES, apply_directives
 from .covers import apply_covers
+from .deezer import Deezer
 from .history import ServedHistory
 from .models import ArtistSeed, Candidate, Track
 from .profile import Profile, build_profile, collect_history, compute_genres, enrich_genres
@@ -32,6 +33,7 @@ class RunResult:
     liked_feedback: list[Track] = field(default_factory=list)
     created_playlists: list[str] = field(default_factory=list)
     api_calls: int = 0
+    deezer_calls: int = 0
     target_size: int = 0
 
 
@@ -153,7 +155,8 @@ def write_output(client: Spotify, cfg: dict, refs: References, name: str, picks:
 
 
 def run(
-    client: Spotify, cfg: dict, rng: random.Random, now: datetime, served: ServedHistory | None = None
+    client: Spotify, cfg: dict, rng: random.Random, now: datetime, served: ServedHistory | None = None,
+    deezer: Deezer | None = None,
 ) -> RunResult:
     """Builds one mix. `served` defaults to the history file named in the config."""
     name = output_name(cfg, now)
@@ -183,7 +186,11 @@ def run(
         log.warning("No listening history or Compass seeds found; this mix will be all wildcards")
 
     selector = Selector(cfg["diversity"]["max_per_artist"], cfg["diversity"]["max_per_genre"])
-    sources = Sources(client, cfg, profile, selector, rng, compass_seeds=seeds, avoid_artist_ids=avoid_ids)
+    if deezer is None and cfg["deezer"]["enabled"]:
+        deezer = Deezer(max_calls=int(cfg["deezer"]["max_calls"]))
+    recent = served.artists_since(now - timedelta(days=int(cfg["deezer"]["cooldown_days"])))
+    sources = Sources(client, cfg, profile, selector, rng, compass_seeds=seeds, avoid_artist_ids=avoid_ids,
+                      deezer=deezer, recent_artists=recent)
     allocation = allocate(size, cfg["mix"])
     fill(sources, selector, allocation, size, cfg["mix"])
     picks = arrange(selector.picks, rng)
@@ -207,4 +214,5 @@ def run(
         served.add_run(now, name, picks, cfg["state"]["keep_days"], url=result.playlist_url)
         served.save()
     result.api_calls = getattr(client, "calls", 0)
+    result.deezer_calls = deezer.calls if deezer else 0
     return result

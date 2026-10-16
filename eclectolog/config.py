@@ -52,6 +52,15 @@ DEFAULTS: dict[str, Any] = {
         "search_budget": 40,  # max search calls per run; Spotify bans apps that search too much
         "discography_chance": 0.3,  # deep cuts: chance to browse the artist's releases vs. albums you've played
     },
+    "deezer": {
+        "enabled": True,  # neighbors come from Deezer's related artists; genre search is the fallback
+        "min_fans": 1000,  # skip neighbors with fewer Deezer fans (filters karaoke, covers and filler)
+        "max_fans": 750_000,  # skip neighbors with more fans than this, i.e. household names (0 = no ceiling)
+        "second_hop_chance": 0.3,  # chance to step one artist further out from yours
+        "top_tracks": 10,  # pick from each neighbor's N most-played tracks
+        "cooldown_days": 14,  # don't serve a neighbor artist again within this many days
+        "max_calls": 400,  # Deezer requests per run
+    },
     "wildcard": {
         "use_builtin_genres": True,
         "genres": [],
@@ -150,6 +159,11 @@ ENV_OPTIONS: dict[str, tuple[str, Callable[[Any], Any], bool]] = {
     "SEARCH_BUDGET": ("diversity.search_budget", int, False),
     "DISCOGRAPHY_CHANCE": ("diversity.discography_chance", float, False),
     "MAX_API_READS": ("api.max_reads", int, False),
+    "DEEZER": ("deezer.enabled", _bool, False),
+    "DEEZER_MIN_FANS": ("deezer.min_fans", int, False),
+    "DEEZER_MAX_FANS": ("deezer.max_fans", int, False),
+    "DEEZER_SECOND_HOP_CHANCE": ("deezer.second_hop_chance", float, False),
+    "NEIGHBOR_COOLDOWN_DAYS": ("deezer.cooldown_days", int, False),
     "WILDCARD_GENRES": ("wildcard.genres", _list, True),
     "ERA_CHANCE": ("wildcard.era_chance", float, False),
     "WILDCARD_SEARCH_DEPTH": ("wildcard.search_depth", int, False),
@@ -333,6 +347,13 @@ def validate(cfg: dict) -> None:
         raise ConfigError("wildcard.search_depth must be between 0 and 1000")
     if not 0 <= float(cfg["wildcard"]["adjacency"]) <= 1:
         raise ConfigError("wildcard.adjacency must be between 0 and 1")
+    dz = cfg["deezer"]
+    if int(dz["min_fans"]) < 0 or int(dz["max_fans"]) < 0:
+        raise ConfigError("deezer.min_fans / max_fans must be >= 0")
+    if not 0 <= float(dz["second_hop_chance"]) <= 1:
+        raise ConfigError("deezer.second_hop_chance must be between 0 and 1")
+    if int(dz["top_tracks"]) < 1 or int(dz["cooldown_days"]) < 0 or int(dz["max_calls"]) < 0:
+        raise ConfigError("deezer.top_tracks must be >= 1; cooldown_days and max_calls >= 0")
     for era in cfg["interests"]["eras"] + list(cfg["wildcard"]["eras"]):
         parse_era(era)
 

@@ -47,6 +47,11 @@ class ServedHistory:
     def all_tracks(self) -> list[Track]:
         return [t for run in self.runs for t in self.tracks(run)]
 
+    def artists_since(self, cutoff: datetime) -> list[tuple[str, str]]:
+        """(artist_id, name) for everyone served on or after `cutoff`."""
+        return [a for run in self.runs if datetime.fromisoformat(run["at"]) >= cutoff
+                for t in self.tracks(run) for a in t.artists]
+
     def last_tracks(self) -> list[Track]:
         return self.tracks(self.runs[-1]) if self.runs else []
 
